@@ -14,6 +14,8 @@ let commentAiQueue = [];
 let lastJoinGreetAt = 0;
 let voiceRunToken = 0;
 let preferredVoice = null;
+let selectedVoiceURI = localStorage.getItem('ttsVoiceURI') || '';
+const EDGE_TTS_VOICE = 'vi-VN-HoaiMyNeural';
 const JOIN_GREET_COOLDOWN_MS = 3500;
 const COMMENT_AI_COOLDOWN_MS = 6500;
 let ttsOrder = 0;
@@ -100,13 +102,49 @@ function getPreferredVoice() {
 function refreshPreferredVoice() {
   if (!speechSynth) return null;
   const voices = speechSynth.getVoices ? speechSynth.getVoices() : [];
+  if (selectedVoiceURI) {
+    preferredVoice = voices.find(voice => voice.voiceURI === selectedVoiceURI) || null;
+    if (preferredVoice) {
+      console.log('Selected TTS voice:', preferredVoice.name, preferredVoice.lang);
+      populateVoiceSelect(voices);
+      return preferredVoice;
+    }
+  }
   const scored = voices
     .map(voice => ({ voice, score: voiceScore(voice) }))
     .filter(item => item.score > 0)
     .sort((a, b) => b.score - a.score);
   preferredVoice = scored.length > 0 ? scored[0].voice : null;
+  if (preferredVoice && !selectedVoiceURI) selectedVoiceURI = preferredVoice.voiceURI;
+  populateVoiceSelect(voices);
   if (preferredVoice) console.log('Selected TTS voice:', preferredVoice.name, preferredVoice.lang);
   return preferredVoice;
+}
+
+function populateVoiceSelect(voices = []) {
+  const select = document.getElementById('voice-select');
+  if (!select) return;
+  const current = selectedVoiceURI || (preferredVoice && preferredVoice.voiceURI) || '';
+  select.innerHTML = voices
+    .map(voice => {
+      const label = `${voice.name} (${voice.lang})`;
+      const selected = voice.voiceURI === current ? ' selected' : '';
+      return `<option value="${escAttr(voice.voiceURI)}"${selected}>${esc(label)}</option>`;
+    })
+    .join('');
+  select.disabled = voices.length === 0;
+}
+
+function onVoiceSelectChange() {
+  const select = document.getElementById('voice-select');
+  selectedVoiceURI = select ? select.value : '';
+  if (selectedVoiceURI) localStorage.setItem('ttsVoiceURI', selectedVoiceURI);
+  preferredVoice = null;
+  refreshPreferredVoice();
+}
+
+function testSelectedVoice() {
+  ttsEnqueue('Xin chào, đây là giọng đọc hiện tại.', { priority: 5 });
 }
 
 function voiceScore(voice) {
@@ -120,7 +158,25 @@ function voiceScore(voice) {
   return score;
 }
 
-function _speakOnce(text, { interrupt = true } = {}) {
+function playAudioUrl(url) {
+  return new Promise((resolve) => {
+    if (!url) {
+      resolve();
+      return;
+    }
+    try {
+      const audio = new Audio(url);
+      audio.preload = 'auto';
+      audio.onended = () => resolve();
+      audio.onerror = () => resolve();
+      audio.play().catch(() => resolve());
+    } catch (_) {
+      resolve();
+    }
+  });
+}
+
+function browserSpeakOnce(text, { interrupt = true } = {}) {
   return new Promise((resolve) => {
     if (!text || !speechSynth) {
       resolve();
@@ -144,6 +200,30 @@ function _speakOnce(text, { interrupt = true } = {}) {
   });
 }
 
+async function _speakOnce(text, { interrupt = true } = {}) {
+  const cleanText = sanitizeTtsText(text);
+  if (!cleanText) return;
+  try {
+    if (interrupt && speechSynth) speechSynth.cancel();
+    const url = await fetchEdgeTtsUrl(cleanText);
+    await playAudioUrl(url);
+  } catch (e) {
+    console.warn('Edge TTS fallback:', e.message || e);
+    await browserSpeakOnce(cleanText, { interrupt });
+  }
+}
+
+async function fetchEdgeTtsUrl(text) {
+  const response = await fetch('/api/tts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, voice: EDGE_TTS_VOICE }),
+  });
+  const data = await response.json();
+  if (!data.ok || !data.url) throw new Error(data.error || 'TTS lỗi');
+  return data.url;
+}
+
 async function ttsDrainQueue() {
   if (ttsBusy) return;
   ttsBusy = true;
@@ -152,9 +232,16 @@ async function ttsDrainQueue() {
       ttsQueue.sort((a, b) => (b.priority - a.priority) || (a.order - b.order));
       const item = ttsQueue.shift();
       if (!item || !item.parts || item.parts.length === 0) continue;
-      // Không interrupt khi đang phát hàng đợi, để nghe tự nhiên.
-      for (const part of item.parts) {
-        await _speakOnce(part, { interrupt: false });
+      try {
+        const urls = await Promise.all(item.parts.map(fetchEdgeTtsUrl));
+        for (const url of urls) {
+          await playAudioUrl(url);
+        }
+      } catch (e) {
+        console.warn('Edge TTS item fallback:', e.message || e);
+        for (const part of item.parts) {
+          await browserSpeakOnce(part, { interrupt: false });
+        }
       }
       if (item.resolve) item.resolve();
     }
@@ -507,9 +594,7 @@ function buildGiftThanks({ name, giftName, qty, total }) {
   // xu ít: đơn giản, gọn
   return pick([
     `Cảm ơn ${n} đã tặng ${giftDetail}.`,
-    `Cảm ơn ${n} nha, mình nhận được ${giftDetail}.`,
     `Cảm ơn ${n} tặng ${giftDetail}.`,
-    `Cảm ơn nha ${n}, phần quà ${giftDetail} dễ thương quá.`,
   ]);
 }
 
@@ -670,6 +755,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('username-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') connectLive();
   });
+  const voiceSelect = document.getElementById('voice-select');
+  if (voiceSelect) voiceSelect.addEventListener('change', onVoiceSelectChange);
   refreshPreferredVoice();
   if (speechSynth) speechSynth.onvoiceschanged = refreshPreferredVoice;
   startVoiceListen();

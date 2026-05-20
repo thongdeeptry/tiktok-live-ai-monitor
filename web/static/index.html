@@ -177,6 +177,11 @@
     }
     .voice-btn.primary { background: #fe2c55; border-color: #fe2c55; font-weight: 600; }
     .voice-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .voice-select-row { display: flex; gap: 8px; align-items: center; padding: 10px 12px; }
+    .voice-select, .voice-badge {
+      min-width: 0; flex: 1; background: #151515; color: #eee; border: 1px solid #333;
+      border-radius: 8px; padding: 8px 10px; font-size: 0.84rem;
+    }
     .voice-tip { color: #9a9a9a; font-size: 0.78rem; padding: 0 12px 10px; }
     #voice-status { color: #8bc34a; font-size: 0.8rem; padding: 0 12px 10px; }
     #voice-last { color: #bbb; font-size: 0.82rem; padding: 0 12px 10px; min-height: 18px; }
@@ -245,6 +250,10 @@
   <div class="voice-row">
     <div class="card">
       <div class="card-header">🎙 AI trả lời comment</div>
+      <div class="voice-select-row">
+        <div class="voice-badge">vi-VN-HoaiMyNeural</div>
+        <button class="voice-btn" onclick="testSelectedVoice()">Test</button>
+      </div>
       <div id="voice-status">AI trả lời comment đang tự bật</div>
       <div class="voice-tip">Bot tự đọc comment và trả lời ngắn gọn. Quà tặng và chào người mới vẫn được đọc trong cùng hàng đợi.</div>
     </div>
@@ -274,6 +283,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=20260520-voice-female-1"></script>
+<script src="/static/app.js?v=20260520-hoaimy-1"></script>
 </body>
 </html>

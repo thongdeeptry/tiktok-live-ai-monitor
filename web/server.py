@@ -1,11 +1,13 @@
 """Backend FastAPI và WebSocket cho bảng điều khiển."""
 import asyncio
+import hashlib
 import json
 import os
 import sys
 from pathlib import Path
 from typing import Set, Optional
 
+import edge_tts
 import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -33,6 +35,11 @@ _groq_client: Optional[Groq] = None
 
 class VoiceChatRequest(BaseModel):
     text: str
+
+
+class TtsRequest(BaseModel):
+    text: str
+    voice: str = "vi-VN-HoaiMyNeural"
 
 
 def _get_groq_client() -> Groq:
@@ -87,6 +94,28 @@ def _generate_voice_reply(user_text: str) -> str:
     return answer or "Mình đang nghe đây, bạn nói lại giúp mình nhé."
 
 
+async def _generate_edge_tts(text: str, voice: str = "vi-VN-HoaiMyNeural") -> str:
+    clean_text = " ".join((text or "").split()).strip()
+    if not clean_text:
+      raise ValueError("Không có nội dung để đọc.")
+    if len(clean_text) > 900:
+        clean_text = clean_text[:900]
+
+    clean_voice = (voice or "vi-VN-HoaiMyNeural").strip()
+    if clean_voice not in {"vi-VN-HoaiMyNeural", "en-US-AriaNeural", "en-US-JennyNeural"}:
+        clean_voice = "vi-VN-HoaiMyNeural"
+
+    cache_dir = static_path / "tts_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha1(f"{clean_voice}\n{clean_text}".encode("utf-8")).hexdigest()
+    filename = f"{digest}.mp3"
+    output_path = cache_dir / filename
+    if not output_path.exists() or output_path.stat().st_size < 512:
+        communicate = edge_tts.Communicate(clean_text, clean_voice, rate="+8%", pitch="+0Hz")
+        await communicate.save(str(output_path))
+    return f"/static/tts_cache/{filename}"
+
+
 async def fetch_euler_rate_limits() -> dict:
     api_key = os.getenv("EULER_API_KEY", "").strip()
     params = {"apiKey": api_key} if api_key else {}
@@ -136,6 +165,15 @@ async def voice_chat(payload: VoiceChatRequest):
         return {"ok": True, "reply": answer}
     except Exception as e:
         return {"ok": False, "reply": "", "error": str(e)}
+
+
+@app.post("/api/tts")
+async def tts(payload: TtsRequest):
+    try:
+        url = await _generate_edge_tts(payload.text, payload.voice)
+        return {"ok": True, "url": url}
+    except Exception as e:
+        return {"ok": False, "url": "", "error": str(e)}
 
 
 @app.websocket("/ws")
