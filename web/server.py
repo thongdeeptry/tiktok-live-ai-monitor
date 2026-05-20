@@ -1,4 +1,4 @@
-"""Backend FastAPI com WebSocket para o dashboard."""
+"""Backend FastAPI và WebSocket cho bảng điều khiển."""
 import asyncio
 import json
 import os
@@ -8,15 +8,17 @@ from typing import Set, Optional
 
 import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from groq import Groq
 import uvicorn
 
 _root = str(Path(__file__).parent.parent)
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-app = FastAPI(title="TikTok Live Monitor")
+app = FastAPI(title="Giám sát TikTok Live")
 
 static_path = Path(__file__).parent / "static"
 if static_path.exists():
@@ -26,6 +28,54 @@ connected_clients: Set[WebSocket] = set()
 collector_task: Optional[asyncio.Task] = None
 current_collector = None
 current_username: str = ""
+_groq_client: Optional[Groq] = None
+
+
+class VoiceChatRequest(BaseModel):
+    text: str
+
+
+def _get_groq_client() -> Groq:
+    global _groq_client
+    if _groq_client is not None:
+        return _groq_client
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key:
+        raise ValueError("Chưa cấu hình GROQ_API_KEY trong file .env")
+    _groq_client = Groq(api_key=api_key)
+    return _groq_client
+
+
+def _generate_voice_reply(user_text: str) -> str:
+    text = (user_text or "").strip()
+    if not text:
+        raise ValueError("Bạn chưa nói nội dung nào.")
+    if len(text) > 1000:
+        text = text[:1000]
+
+    model = os.getenv("AI_MODEL", "llama-3.3-70b-versatile").strip() or "llama-3.3-70b-versatile"
+    client = _get_groq_client()
+
+    completion = client.chat.completions.create(
+        model=model,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Bạn là trợ lý giọng nói tiếng Việt cho dashboard TikTok Live. "
+                    "Trả lời ngắn gọn, tự nhiên, lịch sự, dễ đọc thành tiếng. "
+                    "Không dùng markdown. Tối đa 3 câu."
+                ),
+            },
+            {"role": "user", "content": text},
+        ],
+        temperature=0.5,
+        max_tokens=220,
+        top_p=1,
+        stream=False,
+    )
+    answer = (completion.choices[0].message.content or "").strip()
+    return answer or "Mình đang nghe đây, bạn nói lại giúp mình nhé."
 
 
 async def fetch_euler_rate_limits() -> dict:
@@ -68,6 +118,15 @@ async def broadcast(data: dict):
 async def root():
     html_path = Path(__file__).parent / "static" / "index.html"
     return HTMLResponse(html_path.read_text(encoding="utf-8"))
+
+
+@app.post("/api/voice/chat")
+async def voice_chat(payload: VoiceChatRequest):
+    try:
+        answer = await asyncio.to_thread(_generate_voice_reply, payload.text)
+        return {"ok": True, "reply": answer}
+    except Exception as e:
+        return {"ok": False, "reply": "", "error": str(e)}
 
 
 @app.websocket("/ws")
@@ -118,7 +177,7 @@ async def start_monitor(username: str, ws: WebSocket):
 
     if username == current_username and current_collector is not None:
         try:
-            await ws.send_text(json.dumps({"type": "status", "message": f"Ja conectado em {username}"}))
+            await ws.send_text(json.dumps({"type": "status", "message": f"Đã kết nối sẵn tới {username}"}))
         except Exception:
             pass
         return
@@ -129,7 +188,7 @@ async def start_monitor(username: str, ws: WebSocket):
     from monitor.collector import LiveCollector
 
     try:
-        await ws.send_text(json.dumps({"type": "status", "message": f"Conectando em {username}..."}))
+        await ws.send_text(json.dumps({"type": "status", "message": f"Đang kết nối tới {username}..."}))
         await ws.send_text(json.dumps(await fetch_euler_rate_limits()))
     except Exception:
         pass
@@ -142,7 +201,7 @@ async def start_monitor(username: str, ws: WebSocket):
             collector.on_event(broadcast)
             try:
                 await collector.start()
-                await broadcast({"type": "status", "message": f"Conexao encerrada em {username}, reconectando..."})
+                await broadcast({"type": "status", "message": f"Kết nối tới {username} đã đóng, đang kết nối lại..."})
                 await asyncio.sleep(3)
             except asyncio.CancelledError:
                 await collector.stop()
@@ -156,7 +215,7 @@ async def start_monitor(username: str, ws: WebSocket):
                     pass
                 wait = 30 if "RATE_LIMIT" in err or "rate_limit" in err.lower() else 10
                 await asyncio.sleep(wait)
-                await broadcast({"type": "status", "message": f"Reconectando em {username}..."})
+                await broadcast({"type": "status", "message": f"Đang kết nối lại tới {username}..."})
 
     collector_task = asyncio.create_task(run_with_retry())
 

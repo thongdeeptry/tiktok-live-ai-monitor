@@ -1,10 +1,21 @@
-// TikTok Live Monitor - Frontend JS
+// Giám sát TikTok Live — frontend
 let ws = null;
 const giftRanking = {};
 let giftCatalog = {};
 let statsGifts = 0, statsComments = 0, statsFollows = 0, statsLikes = 0;
+let speechRecognition = null;
+let speechSynth = window.speechSynthesis;
+let isListening = false;
+let autoVoiceEnabled = false;
+let isProcessingVoice = false;
+let voiceRestartTimer = null;
+let ttsQueue = [];
+let ttsBusy = false;
+let lastJoinGreetAt = 0;
+const JOIN_GREET_COOLDOWN_MS = 3500;
+const MAX_TTS_QUEUE = 16;
 
-// Dedup — janela de 5s por tipo+user+texto (evita duplicatas do batch TikTokLive)
+// Chống trùng — cửa sổ 5 giây theo loại+user+nội dung (tránh lặp batch TikTokLive)
 const _seen = new Set();
 function isDup(key) {
   if (_seen.has(key)) return true;
@@ -13,7 +24,7 @@ function isDup(key) {
   return false;
 }
 function dupKey(type, user, extra) {
-  const ts = Math.floor(Date.now() / 5000); // janela 5s
+  const ts = Math.floor(Date.now() / 5000); // cửa sổ 5 giây
   return `${type}|${user}|${extra}|${ts}`;
 }
 
@@ -48,7 +59,7 @@ function playFollowSound() {
   } catch(e) {}
 }
 
-// --- Euler meter ---
+// --- Thanh Euler ---
 const EULER_MAX_PER_MIN = 30;
 function updateEulerMeter(count) {
   const pct = Math.min(100, Math.round((count / EULER_MAX_PER_MIN) * 100));
@@ -57,7 +68,206 @@ function updateEulerMeter(count) {
   if (!bar || !txt) return;
   bar.style.width = pct + '%';
   bar.style.background = pct > 80 ? '#f44336' : pct > 50 ? '#ff9800' : '#4caf50';
-  txt.textContent = `${count}/min`;
+  txt.textContent = `${count}/phút`;
+}
+
+// --- Voice assistant (free, browser-based STT/TTS + Groq chat API) ---
+function updateVoiceStatus(msg) {
+  const el = document.getElementById('voice-status');
+  if (el) el.textContent = msg;
+}
+
+function updateVoiceLast(msg) {
+  const el = document.getElementById('voice-last');
+  if (el) el.textContent = msg;
+}
+
+function setVoiceButtons(listening) {
+  const startBtn = document.getElementById('voice-start-btn');
+  const stopBtn = document.getElementById('voice-stop-btn');
+  if (startBtn) startBtn.disabled = autoVoiceEnabled || listening;
+  if (stopBtn) stopBtn.disabled = !(autoVoiceEnabled || listening || isProcessingVoice);
+}
+
+function clearVoiceRestartTimer() {
+  if (!voiceRestartTimer) return;
+  clearTimeout(voiceRestartTimer);
+  voiceRestartTimer = null;
+}
+
+function scheduleNextListen(delayMs = 500) {
+  if (!autoVoiceEnabled || isListening || isProcessingVoice) return;
+  clearVoiceRestartTimer();
+  voiceRestartTimer = setTimeout(() => {
+    voiceRestartTimer = null;
+    if (autoVoiceEnabled && !isListening && !isProcessingVoice) {
+      startVoiceListen();
+    }
+  }, delayMs);
+}
+
+function _speakOnce(text, { interrupt = true } = {}) {
+  return new Promise((resolve) => {
+    if (!text || !speechSynth) {
+      resolve();
+      return;
+    }
+    try {
+      if (interrupt) speechSynth.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'vi-VN';
+      u.rate = 1;
+      u.pitch = 1;
+      u.onend = () => resolve();
+      u.onerror = () => resolve();
+      speechSynth.speak(u);
+    } catch (_) {
+      resolve();
+    }
+  });
+}
+
+async function ttsDrainQueue() {
+  if (ttsBusy) return;
+  ttsBusy = true;
+  try {
+    while (ttsQueue.length > 0) {
+      const item = ttsQueue.shift();
+      if (!item || !item.text) continue;
+      // Không interrupt khi đang phát hàng đợi, để nghe tự nhiên.
+      await _speakOnce(item.text, { interrupt: false });
+    }
+  } finally {
+    ttsBusy = false;
+  }
+}
+
+function ttsEnqueue(text) {
+  const t = String(text || '').trim();
+  if (!t) return;
+  // Tránh phình hàng đợi khi room vào dồn dập
+  if (ttsQueue.length >= MAX_TTS_QUEUE) ttsQueue.shift();
+  ttsQueue.push({ text: t });
+  ttsDrainQueue();
+}
+
+function ttsClearAll() {
+  ttsQueue = [];
+  try { if (speechSynth) speechSynth.cancel(); } catch (_) {}
+}
+
+// Dùng cho voice assistant: đọc xong mới nghe lại, nên interrupt để phản hồi nhanh.
+function speakText(text) {
+  return _speakOnce(text, { interrupt: true });
+}
+
+async function askVoiceAI(text) {
+  const response = await fetch('/api/voice/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  const data = await response.json();
+  if (!data.ok) throw new Error(data.error || 'Không gọi được trợ lý AI');
+  return data.reply || '';
+}
+
+function ensureRecognition() {
+  if (speechRecognition) return speechRecognition;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return null;
+  const rec = new SR();
+  rec.lang = 'vi-VN';
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+  rec.continuous = false;
+
+  rec.onstart = () => {
+    isListening = true;
+    setVoiceButtons(true);
+    updateVoiceStatus('Đang nghe liên tục... hãy nói tự nhiên');
+  };
+
+  rec.onend = () => {
+    isListening = false;
+    setVoiceButtons(false);
+    if (autoVoiceEnabled) {
+      if (isProcessingVoice) {
+        updateVoiceStatus('Đang xử lý câu trả lời...');
+      } else {
+        updateVoiceStatus('Đang chờ để nghe lại...');
+        scheduleNextListen(450);
+      }
+    } else {
+      updateVoiceStatus('Đã dừng nghe');
+    }
+  };
+
+  rec.onerror = (event) => {
+    isListening = false;
+    setVoiceButtons(false);
+    updateVoiceStatus(`Lỗi mic/STT: ${event.error || 'không xác định'}`);
+    if (autoVoiceEnabled) scheduleNextListen(1200);
+  };
+
+  rec.onresult = async (event) => {
+    const spoken = (event.results?.[0]?.[0]?.transcript || '').trim();
+    if (!spoken) {
+      updateVoiceStatus('Không nghe rõ, bạn thử nói lại nhé.');
+      if (autoVoiceEnabled) scheduleNextListen(500);
+      return;
+    }
+    isProcessingVoice = true;
+    setVoiceButtons(false);
+    updateVoiceLast(`Bạn: ${spoken}`);
+    updateVoiceStatus('Đang hỏi AI...');
+    try {
+      const reply = await askVoiceAI(spoken);
+      updateVoiceLast(`Bạn: ${spoken} | Trợ lý: ${reply}`);
+      updateVoiceStatus('Đang đọc câu trả lời...');
+      await speakText(reply);
+      updateVoiceStatus(autoVoiceEnabled ? 'Đã trả lời, chuẩn bị nghe lại...' : 'Đã trả lời xong');
+    } catch (e) {
+      updateVoiceStatus(`Lỗi AI: ${e.message || e}`);
+    } finally {
+      isProcessingVoice = false;
+      setVoiceButtons(false);
+      if (autoVoiceEnabled) scheduleNextListen(600);
+    }
+  };
+
+  speechRecognition = rec;
+  return rec;
+}
+
+function startVoiceListen() {
+  const rec = ensureRecognition();
+  if (!rec) {
+    updateVoiceStatus('Trình duyệt không hỗ trợ nhận giọng nói (dùng Chrome/Edge).');
+    return;
+  }
+  autoVoiceEnabled = true;
+  clearVoiceRestartTimer();
+  if (isListening) return;
+  try {
+    rec.start();
+  } catch (_) {
+    scheduleNextListen(600);
+  }
+  setVoiceButtons(isListening);
+}
+
+function stopVoiceListen() {
+  autoVoiceEnabled = false;
+  isProcessingVoice = false;
+  clearVoiceRestartTimer();
+  ttsClearAll();
+  updateVoiceStatus('Đã tắt chế độ nghe liên tục');
+  setVoiceButtons(false);
+  if (!speechRecognition || !isListening) return;
+  try {
+    speechRecognition.stop();
+  } catch (_) {}
 }
 
 // --- WebSocket ---
@@ -66,7 +276,7 @@ function connectLive() {
   if (!username) return;
   getAC();
   const name = username.startsWith('@') ? username : '@' + username;
-  setStatus('Conectando...');
+  setStatus('Đang kết nối...');
 
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ action: 'connect', username: name }));
@@ -75,23 +285,23 @@ function connectLive() {
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onopen = () => ws.send(JSON.stringify({ action: 'connect', username: name }));
   ws.onmessage = e => handleEvent(JSON.parse(e.data));
-  ws.onclose = () => setStatus('Desconectado');
-  ws.onerror = () => setStatus('Erro WebSocket');
+  ws.onclose = () => setStatus('Đã ngắt kết nối');
+  ws.onerror = () => setStatus('Lỗi WebSocket');
 }
 
 function handleEvent(data) {
   switch (data.type) {
     case 'status':      setStatus(data.message); break;
     case 'error':       setStatus('\u274c ' + data.message); break;
-    case 'connect':     setStatus(`\u2705 Conectado em ${data.username}`); break;
-    case 'disconnect':  setStatus('\u26a0\ufe0f Desconectado'); break;
-    case 'live_end':    setStatus('\ud83d\udd34 Live encerrada'); break;
+    case 'connect':     setStatus(`\u2705 Đã kết nối tới ${data.username}`); break;
+    case 'disconnect':  setStatus('\u26a0\ufe0f Đã ngắt kết nối'); break;
+    case 'live_end':    setStatus('\ud83d\udd34 Live đã kết thúc'); break;
     case 'viewers':     document.getElementById('stat-viewers').textContent = fmtNum(data.count); break;
     case 'comment':     addComment(data); break;
     case 'gift':        addGift(data); break;
     case 'follow':      addFollow(data); break;
     case 'join':        addJoin(data); break;
-    case 'share':       addEventFeed('compartilhou', data.nickname, data.user, '\ud83d\udd17', getProfile(data)); break;
+    case 'share':       addEventFeed('đã chia sẻ', data.nickname, data.user, '\ud83d\udd17', getProfile(data)); break;
     case 'like':        addLike(data); break;
     case 'euler_stats': updateEulerMeter(data.count); break;
     case 'euler_limits': updateEulerLimits(data.limits); break;
@@ -114,7 +324,7 @@ function getProfile(d) {
 }
 
 function displayName(profile) {
-  return profile.nickname || profile.username || 'Sem nome';
+  return profile.nickname || profile.username || 'Chưa có tên';
 }
 
 function userHandle(profile) {
@@ -123,12 +333,12 @@ function userHandle(profile) {
 
 function profileTitle(profile) {
   const parts = [
-    `nome=${displayName(profile)}`,
+    `tên=${displayName(profile)}`,
     `user=${profile.username || '-'}`,
     `id=${profile.user_id || '-'}`,
-    `verificado=${profile.verified ? 'sim' : 'nao'}`,
-    `seguidores=${profile.followers || 0}`,
-    `seguindo=${profile.following || 0}`
+    `xác minh=${profile.verified ? 'có' : 'không'}`,
+    `người theo dõi=${profile.followers || 0}`,
+    `đang theo=${profile.following || 0}`
   ];
   return parts.join(' | ');
 }
@@ -226,6 +436,65 @@ function addGift(d) {
   giftRanking[d.user].count += d.gift_count || 1;
   giftRanking[d.user].profile = profile;
   renderRanking();
+
+  // Đọc cảm ơn theo số xu (coin_value * số lượng)
+  try {
+    const coinEach = Number(d.coin_value || 0) || 0;
+    const qty = Number(d.gift_count || 1) || 1;
+    const total = Math.max(0, coinEach * qty);
+    const name = displayName(profile);
+    const giftName = String(d.gift_name || 'quà').trim() || 'quà';
+    const thanks = buildGiftThanks({ name, giftName, qty, total });
+    if (thanks) ttsEnqueue(thanks);
+  } catch (_) {}
+}
+
+function pick(arr) {
+  if (!arr || arr.length === 0) return '';
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function buildGiftThanks({ name, giftName, qty, total }) {
+  const n = String(name || '').trim() || 'bạn';
+  const g = String(giftName || '').trim() || 'quà';
+  const q = Number(qty || 1) || 1;
+  const t = Number(total || 0) || 0;
+
+  const giftPart = q > 1 ? `${q} ${g}` : g;
+  const totalPart = t > 0 ? ` (${fmtNum(t)} xu)` : '';
+
+  // Câu phải "giống thật": ngắn, tự nhiên, không quá khuôn mẫu
+  if (t >= 1000) {
+    return pick([
+      `${n} chơi lớn quá, cảm ơn ${n} nhiều nha${totalPart}.`,
+      `Ui ${n}, quà này VIP thật. Cảm ơn ${n} nha${totalPart}.`,
+      `Cảm ơn ${n} nhiều lắm, quá xịn luôn${totalPart}.`,
+      `${n} tặng ${giftPart} mà đỉnh quá. Cảm ơn nha${totalPart}.`,
+    ]);
+  }
+  if (t >= 200) {
+    return pick([
+      `Cảm ơn ${n} nha, quà xịn quá${totalPart}.`,
+      `Đỉnh quá ${n}, cảm ơn nhiều${totalPart}.`,
+      `${n} tặng ${giftPart} là mình vui liền. Cảm ơn nha${totalPart}.`,
+      `Cảm ơn ${n} nhiều nha, quá có tâm${totalPart}.`,
+    ]);
+  }
+  if (t >= 50) {
+    return pick([
+      `Cảm ơn ${n} nha${totalPart}.`,
+      `Cảm ơn ${n} nhiều${totalPart}.`,
+      `${n} dễ thương quá, cảm ơn nha${totalPart}.`,
+      `Cảm ơn ${n} đã tặng ${giftPart}${totalPart}.`,
+    ]);
+  }
+  // xu ít: đơn giản, gọn
+  return pick([
+    `Cảm ơn ${n}.`,
+    `Cảm ơn ${n} nha.`,
+    `Cảm ơn ${n} tặng ${giftPart}.`,
+    `Cảm ơn nha ${n}.`,
+  ]);
 }
 
 function addFollow(d) {
@@ -235,13 +504,39 @@ function addFollow(d) {
   statsFollows++;
   document.getElementById('stat-follows').textContent = statsFollows;
   playFollowSound();
-  addEventFeed('seguiu', d.nickname, d.user, '\u2764\ufe0f', profile);
+  addEventFeed('đã theo dõi', d.nickname, d.user, '\u2764\ufe0f', profile);
 }
 
 function addJoin(d) {
   const key = dupKey('join', d.user, '');
   if (isDup(key)) return;
-  addEventFeed('entrou', d.nickname, d.user, '\ud83d\udfe2', getProfile(d));
+  const profile = getProfile(d);
+  addEventFeed('đã vào phòng', d.nickname, d.user, '\ud83d\udfe2', profile);
+
+  // Chào người mới với cooldown để không bị spam khi phòng đông.
+  const now = Date.now();
+  if (now - lastJoinGreetAt < JOIN_GREET_COOLDOWN_MS) return;
+  lastJoinGreetAt = now;
+  const welcome = buildJoinWelcome(profile);
+  if (welcome) ttsEnqueue(welcome);
+}
+
+function buildJoinWelcome(profile) {
+  const n = displayName(profile);
+  const hasUser = !!(profile && profile.username);
+
+  const simple = [
+    `Chào mừng ${n} vừa vào phòng nha.`,
+    `Hello ${n}, vào chơi vui vẻ nha.`,
+    `Welcome ${n}, cảm ơn bạn đã ghé live.`,
+    `${n} mới vào room, chào bạn nha.`,
+  ];
+  const withHandle = [
+    `Chào ${n}, @${profile.username} vào đúng lúc luôn.`,
+    `Chào mừng ${n}, @${profile.username} ơi ở lại chơi nha.`,
+    `${n} ghé live rồi, @${profile.username} thấy được thì chào mọi người nhé.`,
+  ];
+  return hasUser ? pick([...simple, ...withHandle]) : pick(simple);
 }
 
 function addLike(d) {
@@ -251,7 +546,7 @@ function addLike(d) {
   statsLikes++;
   const el = document.getElementById('stat-likes');
   if (el) el.textContent = fmtNum(statsLikes);
-  addEventFeed('curtiu', d.nickname, d.user, '\ud83d\udc4d', profile);
+  addEventFeed('đã thích', d.nickname, d.user, '\ud83d\udc4d', profile);
 }
 
 function addEventFeed(tipo, nickname, user, icon = '\u2022') {
@@ -302,15 +597,15 @@ function updateEulerLimits(limits) {
 
 function updateRoomInfo(room) {
   const creator = room && room.creator ? room.creator : {};
-  const title = (room && room.title) || 'Live sem titulo';
+  const title = (room && room.title) || 'Live không có tiêu đề';
   const creatorLine = [
     displayName(creator),
     userHandle(creator),
-    creator.verified ? 'verificado' : '',
-    room && room.current_viewers ? `${fmtNum(room.current_viewers)} assistindo` : ''
+    creator.verified ? 'đã xác minh' : '',
+    room && room.current_viewers ? `${fmtNum(room.current_viewers)} đang xem` : ''
   ].filter(Boolean).join(' • ');
   document.getElementById('live-title').textContent = title;
-  document.getElementById('creator-meta').textContent = creatorLine || 'Sem dados da live';
+  document.getElementById('creator-meta').textContent = creatorLine || 'Chưa có dữ liệu live';
 
   const avatar = document.getElementById('creator-avatar');
   avatar.src = safeUrl(creator.avatar, placeholderAvatar(creator));
@@ -348,4 +643,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('username-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') connectLive();
   });
+  setVoiceButtons(false);
+  updateVoiceStatus('Sẵn sàng');
 });

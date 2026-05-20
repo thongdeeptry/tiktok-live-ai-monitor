@@ -1,197 +1,198 @@
-# 🎯 TikTok Live AI Monitor — Plano Completo
+# 🎯 TikTok Live AI Monitor — Kế hoạch chi tiết
 
-> Versão: 1.0  
-> Status: Em desenvolvimento
-
----
-
-## 📋 Visão Geral
-
-Sistema que monitora lives do TikTok em tempo real, coleta dados de eventos (gifts, comentários, usuários online, likes) e usa uma IA em modo **conversa** para responder de forma inteligente tanto para o streamer quanto para o chat — com controle total de custo de tokens.
+> Phiên bản: 1.0  
+> Trạng thái: Đang phát triển
 
 ---
 
-## 🏗️ Arquitetura do Projeto
+## 📋 Tổng quan
+
+Hệ thống giám sát live TikTok theo thời gian thực, thu thập sự kiện (quà tặng, bình luận, người xem, lượt thích) và dùng AI ở chế độ **hội thoại** để phản hồi thông minh cho cả streamer và chat — có kiểm soát chi phí token.
+
+---
+
+## 🏗️ Kiến trúc dự án
 
 ```
 tiktok-live-ai-monitor/
-├── PLANO.md                   ← Este arquivo
+├── PLANO.md                   ← File này
 ├── monitor/
-│   ├── collector.py           ← Captura eventos do TikTokLive (WebSocket)
-│   ├── profile_fetcher.py     ← Busca dados de perfil do usuário (opcional)
-│   └── event_buffer.py        ← Buffer de eventos por janela de tempo/qty
+│   ├── collector.py           ← Bắt sự kiện TikTokLive (WebSocket)
+│   ├── profile_fetcher.py     ← Lấy hồ sơ người dùng (tùy chọn)
+│   └── event_buffer.py        ← Buffer sự kiện theo cửa sổ thời gian/số lượng
 ├── ai/
-│   ├── ai_agent.py            ← Agente IA em modo conversa
-│   ├── prompt_builder.py      ← Monta contexto otimizado (anti-token-waste)
-│   └── turn_controller.py     ← Controla quando disparar a IA
+│   ├── ai_agent.py            ← Agent AI chế độ hội thoại
+│   ├── prompt_builder.py      ← Ghép ngữ cảnh tối ưu (tránh lãng phí token)
+│   └── turn_controller.py     ← Điều khiển khi gọi AI
 ├── web/
 │   ├── server.py              ← Backend FastAPI + WebSocket
 │   ├── static/
-│   │   ├── index.html         ← Dashboard web
-│   │   ├── app.js             ← Frontend JS com WebSocket
+│   │   ├── index.html         ← Giao diện web
+│   │   ├── app.js             ← JavaScript frontend + WebSocket
 │   │   └── sounds/
-│   │       └── gift.mp3       ← Som de presente
+│   │       └── gift.mp3       ← Âm thanh quà tặng
 │   └── templates/
 ├── config/
-│   └── settings.yaml          ← Todas as configs do sistema
+│   └── settings.yaml          ← Toàn bộ cấu hình hệ thống
 ├── requirements.txt
-└── main.py                    ← Entry point
+└── main.py                    ← Điểm vào chương trình
 ```
 
 ---
 
-## ⚙️ Fase 1 — Monitor de Dados Puro (SEM IA)
+## ⚙️ Giai đoạn 1 — Chỉ giám sát dữ liệu (KHÔNG AI)
 
-> **Objetivo:** Conectar em qualquer live pelo @username, exibir dados em tempo real numa web com som de gift.
+> **Mục tiêu:** Kết nối bất kỳ live nào qua @username, hiển thị dữ liệu theo thời gian thực trên web và có âm thanh khi có quà.
 
-### Eventos Capturados
-| Evento | Dados Coletados |
-|--------|----------------|
+### Sự kiện thu được
+| Sự kiện | Dữ liệu thu |
+|---------|-------------|
 | `GiftEvent` | user, gift_name, coin_value, repeat_count, avatar_url |
-| `CommentEvent` | user, texto, timestamp |
+| `CommentEvent` | user, nội dung, timestamp |
 | `JoinEvent` | user, timestamp |
 | `LikeEvent` | user, like_count |
 | `FollowEvent` | user |
 | `ShareEvent` | user |
 | `RoomUserSeqEvent` | viewer_count |
-| `LiveEndEvent` | — encerra o monitor |
+| `LiveEndEvent` | — kết thúc giám sát |
 
-### Web Dashboard (Fase 1)
-- Input para digitar qualquer `@username` e conectar
-- Painel de **viewers em tempo real**
-- Feed de comentários ao vivo
-- Feed de gifts com nome do presente e valor em coins
-- **Ranking TOP 10 gifters** atualizado em tempo real
-- **Som de alerta** ao receber gift (arquivo `.mp3` local)
-- Reconexão automática em caso de queda
+### Bảng điều khiển web (giai đoạn 1)
+- Ô nhập `@username` bất kỳ và nút kết nối
+- Bảng **người xem theo thời gian thực**
+- Luồng bình luận trực tiếp
+- Luồng quà kèm tên và giá coin
+- **Xếp hạng TOP 10 người tặng quà** cập nhật theo thời gian thực
+- **Âm báo** khi có quà (file `.mp3` cục bộ)
+- Tự động kết nối lại khi rớt mạng
 
 ---
 
-## 🤖 Fase 2 — Integração com IA (Modo Conversa)
+## 🤖 Giai đoạn 2 — Tích hợp AI (chế độ hội thoại)
 
-### Conceito Principal
-A IA fica em **modo conversa contínua** — ela tem memória do contexto da live e responde tanto ao streamer quanto ao chat. Os dados são agrupados antes de ir para a IA para **minimizar tokens gastos**.
+### Ý chính
+AI hoạt động **hội thoại liên tục** — nhớ ngữ cảnh live và trả lời cho streamer lẫn chat. Dữ liệu được gom trước khi gửi AI để **giảm token**.
 
-### Modos de Disparo da IA
+### Chế độ kích hoạt AI
 
-Configuráveis via `settings.yaml`:
+Cấu hình trong `settings.yaml`:
 
 ```yaml
 ai:
   trigger_mode: "turn"          # turn | message_threshold | gift | hybrid
   
   turn:
-    interval_seconds: 60        # A cada 60s agrupa tudo e envia pra IA
+    interval_seconds: 60        # Mỗi 60s gom hết và gửi cho AI
     
   message_threshold:
-    max_messages: 20            # Dispara quando acumular 20 mensagens
-    low_activity_threshold: 3   # Se tiver menos de 3 msgs/min, pode disparar antes
+    max_messages: 20            # Kích hoạt khi đủ 20 tin nhắn
+    low_activity_threshold: 3   # Live ít người: có thể gửi sớm hơn
     
   gift:
-    enabled: true               # Sempre dispara ao receber gift
-    lookup_profile: true        # Se true, busca perfil do doador
+    enabled: true               # Luôn gửi khi có quà
+    lookup_profile: true        # true = tra hồ sơ người tặng
     profile_mode: "name_only"   # name_only | full_profile
 ```
 
-#### Modo `turn` (Por Turnos)
-- Acumula eventos num buffer por `X segundos`
-- Agrupa: gifts recebidos, comentários relevantes, novos seguidores, viewers count
-- Manda tudo num único prompt comprimido pra IA
-- IA responde com análise do turno + sugestão de interação pro streamer
+#### Chế độ `turn` (theo lượt)
+- Gom sự kiện trong buffer `X` giây
+- Gom: quà nhận, bình luận quan trọng, follower mới, số người xem
+- Gửi một prompt nén duy nhất cho AI
+- AI trả về phân tích lượt + gợi ý tương tác cho streamer
 
-#### Modo `message_threshold` (Por Volume)
-- Monitora atividade do chat em tempo real
-- **Live lotada (alta atividade):** acumula mais mensagens antes de disparar
-- **Live vazia (baixa atividade):** dispara mais rápido pra manter engajamento
-- Configurável: `max_messages`, `low_activity_threshold` (msgs/min)
+#### Chế độ `message_threshold` (theo khối lượng)
+- Theo dõi mức độ chat theo thời gian thực
+- **Live đông:** gom nhiều tin hơn rồi mới gửi
+- **Live vắng:** gửi nhanh hơn để giữ tương tác
+- Tham số: `max_messages`, `low_activity_threshold` (tin/phút)
 
-#### Modo `gift` (Por Presente)
-- Toda vez que um gift é recebido, dispara análise
-- **`name_only`:** IA só recebe nome/username do doador (zero custo extra)
-- **`full_profile`:** sistema busca perfil público do usuário (followers, bio, avatar) antes de enviar pra IA
-- IA gera resposta personalizada citando o doador
+#### Chế độ `gift` (theo quà)
+- Mỗi lần có quà → gửi phân tích
+- **`name_only`:** AI chỉ nhận tên/username người tặng (ít chi phí)
+- **`full_profile`:** hệ thống lấy hồ sơ công khai (followers, bio, avatar) trước khi gửi AI
+- AI trả lời cá nhân hóa nhắc người tặng
 
-#### Modo `hybrid`
-- Combina gift (sempre) + turn (backup de tempo)
+#### Chế độ `hybrid`
+- Kết hợp gift (luôn) + turn (dự phòng theo thời gian)
 
 ---
 
-## 💰 Controle de Custo de Tokens
+## 💰 Kiểm soát chi phí token
 
-Esta é a parte mais crítica do projeto.
+Đây là phần quan trọng nhất.
 
-### Estratégias Implementadas
+### Chiến lược (theo thiết kế)
 
-#### 1. Compressão do Contexto
-Ao invés de enviar cada mensagem individualmente, o `prompt_builder.py` comprime o buffer:
+#### 1. Nén ngữ cảnh
+Thay vì gửi từng tin, `prompt_builder.py` nén buffer:
+
 ```
-# Ruim (alto custo):
-"Carlos disse: oi", "Carlos disse: tô aqui", "Carlos disse: manda um som"
+# Kém (tốn token):
+"Carlos: hi", "Carlos: vẫn ở đây", "Carlos: nhạc đi"
 
-# Bom (baixo custo):
-"Carlos (3 msgs): oi, tô aqui, manda um som"
+# Tốt (ít token):
+"Carlos (3 tin): hi, vẫn ở đây, nhạc đi"
 ```
 
-#### 2. Janela de Contexto Rolante
-- A IA mantém apenas os **últimos N turnos** em memória
-- Configurável: `ai.context_window_turns: 5`
-- Turnos antigos são descartados do contexto
+#### 2. Cửa sổ ngữ cảnh trượt
+- AI chỉ giữ **N lượt** gần nhất
+- Cấu hình: `ai.context_window_turns: 5`
+- Lượt cũ bỏ khỏi ngữ cảnh
 
-#### 3. Filtragem de Eventos Irrelevantes
-- `JoinEvent` de usuários sem histórico → descartado
-- Likes repetidos do mesmo usuário → agregado (`Carlos curtiu 47x`)
-- Comentários com spam ou repetição → filtrado
+#### 3. Lọc sự kiện không cần thiết
+- `JoinEvent` user không có lịch sử → bỏ
+- Like lặp cùng user → gộp (`Carlos thích 47 lần`)
+- Spam/lặp bình luận → lọc
 
-#### 4. Sistema de Prioridade
+#### 4. Hệ thống ưu tiên
 ```yaml
 ai:
   priority_filter:
-    gifts: always           # Gifts SEMPRE chegam à IA
-    followers: always       # Novos seguidores SEMPRE
-    comments: if_relevant   # Comentários só se passarem no filtro
-    joins: never            # Entradas de usuário NÃO vão pra IA
-    likes: aggregate_only   # Só o total agregado vai
+    gifts: always           # Quà LUÔN vào AI
+    followers: always       # Follower mới LUÔN
+    comments: if_relevant # Bình luận chỉ khi đạt tiêu chí
+    joins: never            # Vào phòng KHÔNG gửi AI
+    likes: aggregate_only   # Chỉ gửi tổng gộp
 ```
 
-#### 5. Budget por Hora
+#### 5. Ngân sách theo giờ
 ```yaml
 ai:
   token_budget:
-    max_tokens_per_hour: 50000   # Limite de tokens/hora
-    alert_at_percent: 80         # Alerta quando chegar em 80%
-    fallback_mode: "turn_only"   # Se estourar, vai pra modo turn com intervalo maior
+    max_tokens_per_hour: 50000   # Giới hạn token/giờ
+    alert_at_percent: 80         # Cảnh báo khi đạt 80%
+    fallback_mode: "turn_only"   # Vượt ngân sách → chỉ chế độ turn, interval lớn hơn
 ```
 
 ---
 
-## 👤 Módulo de Perfil do Usuário
+## 👤 Module hồ sơ người dùng
 
-### Quando ativar
-- Apenas em `gift` events
-- Apenas se `profile_mode: full_profile`
-- Cache de perfil: se o user já foi buscado nessa sessão, usa o cache (zero chamada extra)
+### Khi bật
+- Chỉ với sự kiện `gift`
+- Chỉ khi `profile_mode: full_profile`
+- Cache hồ sơ trong phiên → không gọi lặp
 
-### Dados buscados
+### Dữ liệu lấy về (ví dụ)
 ```python
 profile = {
     "unique_id": "@carlos123",
     "nickname": "Carlos",
     "follower_count": 1520,
     "following_count": 340,
-    "bio": "fã do streamer",
+    "bio": "fan của streamer",
     "avatar_url": "...",
-    "is_follower": True,   # se já segue o streamer
+    "is_follower": True,
 }
 ```
 
-### Prompt gerado (custo mínimo)
+### Prompt tối thiểu (ví dụ)
 ```
-[GIFT] @carlos123 (Carlos, 1.5k seguidores, já te segue) enviou 5x "Rose" (5 coins cada)
+[GIFT] @carlos123 (Carlos, 1.5k follower, đã follow bạn) gửi 5x "Rose" (5 coin mỗi cái)
 ```
 
 ---
 
-## 🔁 Fluxo Completo da IA
+## 🔁 Luồng đầy đủ của AI
 
 ```
 TikTok Live
@@ -200,83 +201,83 @@ TikTok Live
 collector.py ──► event_buffer.py
                       │
                turn_controller.py
-               (verifica trigger_mode)
+               (kiểm tra trigger_mode)
                       │
-               profile_fetcher.py  ◄── (só se gift + full_profile)
+               profile_fetcher.py  ◄── (chỉ khi gift + full_profile)
                       │
                prompt_builder.py
-               (comprime + filtra)
+               (nén + lọc)
                       │
-               ai_agent.py  ◄──── mantém histórico da conversa
+               ai_agent.py  ◄──── giữ lịch sử hội thoại
                       │
-               [Resposta da IA]
+               [Phản hồi AI]
                       │
             ┌─────────┴──────────┐
             ▼                    ▼
-      Web Dashboard        Console / Log
-   (exibe pra streamer)   (para debug)
+      Bảng điều khiển web    Console / nhật ký
+   (hiển thị streamer)      (gỡ lỗi)
 ```
 
 ---
 
-## 🛠️ Stack Tecnológica
+## 🛠️ Công nghệ
 
-| Camada | Tecnologia |
-|--------|------------|
-| Captura de Live | `TikTokLive` (Python, isaackogan) |
+| Tầng | Công nghệ |
+|------|-----------|
+| Thu live | `TikTokLive` (Python, isaackogan) |
 | Backend API | `FastAPI` + `uvicorn` |
-| WebSocket web | `FastAPI WebSocket` |
-| Frontend | HTML + Vanilla JS (sem framework) |
-| IA | OpenAI GPT-4o-mini / Gemini Flash (configurável) |
-| Config | `PyYAML` |
-| Cache de perfil | Dict em memória (por sessão) |
-| Som | HTML5 Audio API |
+| WebSocket | `FastAPI WebSocket` |
+| Frontend | HTML + JavaScript thuần (không framework) |
+| AI | Groq (Llama/Mixtral, miễn phí) / OpenAI / Gemini (cấu hình được) |
+| Cấu hình | `PyYAML` |
+| Cache hồ sơ | Dict trong RAM (theo phiên) |
+| Âm thanh | HTML5 Audio API |
 
 ---
 
-## 📦 Roadmap de Versões
+## 📦 Lộ trình phiên bản
 
-### v0.1 — Monitor Web Puro ✅ (fase atual)
-- [ ] Conectar em qualquer live por @username
-- [ ] Dashboard web com eventos em tempo real
-- [ ] Ranking de gifts
-- [ ] Som ao receber gift
-- [ ] Reconexão automática
+### v0.1 — Chỉ web giám sát ✅ (hiện tại)
+- [ ] Kết nối mọi live qua @username
+- [ ] Bảng điều khiển theo thời gian thực
+- [ ] Xếp hạng quà
+- [ ] Âm thanh khi có quà
+- [ ] Tự kết nối lại
 
-### v0.2 — IA Básica
-- [ ] Integrar modelo (GPT-4o-mini ou Gemini Flash)
-- [ ] Modo `turn` funcionando
-- [ ] Prompt builder com compressão
-- [ ] Resposta exibida no dashboard
+### v0.2 — AI cơ bản
+- [ ] Tích hợp model (Groq miễn phí — Llama/Mixtral — hoặc GPT/Gemini)
+- [ ] Chế độ `turn` chạy được
+- [ ] Prompt builder có nén
+- [ ] Hiển thị câu trả lời trên bảng điều khiển
 
-### v0.3 — Controle Avançado
-- [ ] Modo `message_threshold` com detecção de atividade
-- [ ] Modo `gift` com perfil do usuário
-- [ ] Budget de tokens com fallback
-- [ ] Settings via UI (sem editar YAML)
+### v0.3 — Kiểm soát nâng cao
+- [ ] `message_threshold` + nhận diện mức độ hoạt động
+- [ ] `gift` + hồ sơ người dùng
+- [ ] Ngân sách token + fallback
+- [ ] Cài đặt qua UI (không sửa YAML)
 
-### v0.4 — IA em Conversa
-- [ ] IA responde diretamente ao streamer (modo chat)
-- [ ] Janela de contexto rolante
-- [ ] Histórico exportável da sessão
+### v0.4 — AI hội thoại
+- [ ] AI trả lời trực tiếp streamer (chat)
+- [ ] Cửa sổ ngữ cảnh trượt
+- [ ] Xuất lịch sử phiên
 
 ---
 
-## 🔐 Variáveis de Ambiente
+## 🔐 Biến môi trường
 
 ```env
-TIKTOK_USERNAME=@seu_usuario
-OPENAI_API_KEY=sk-...
-GEMINI_API_KEY=...  # alternativa
-AI_MODEL=gpt-4o-mini
+TIKTOK_USERNAME=@username_cua_ban
+GROQ_API_KEY=gsk_...   # miễn phí tại https://console.groq.com
+AI_MODEL=llama-3.3-70b-versatile
+# Tùy chọn sau này: OPENAI_API_KEY=..., GEMINI_API_KEY=...
 WEB_PORT=8000
 ```
 
 ---
 
-## ⚠️ Notas Importantes
+## ⚠️ Lưu ý quan trọng
 
-- `TikTokLive` é uma lib **não-oficial** baseada em engenharia reversa
-- Requer `SignAPI` (Euler Stream) para funcionar — pode ter limites de rate
-- Perfis de usuário são obtidos via scraping, não via API oficial
-- Toda sessão de live é uma nova instância do client
+- `TikTokLive` là thư viện **không chính thức**, dựa reverse engineering
+- Thường cần `SignAPI` (Euler Stream) — có giới hạn tần suất
+- Hồ sơ user lấy qua scraping, không phải API chính thức TikTok
+- Mỗi phiên live là một instance client mới

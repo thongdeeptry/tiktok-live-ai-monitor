@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="vi">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TikTok Live Monitor</title>
+  <title>Giám sát TikTok Live</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -35,7 +35,7 @@
     }
     #connect-btn:hover { background: #c8213f; }
 
-    /* Euler meter na header */
+    /* Đồng hồ Euler trên header */
     #euler-meter {
       display: flex; align-items: center; gap: 6px;
       font-size: 0.75rem; color: #666;
@@ -68,6 +68,7 @@
       padding: 8px; gap: 8px;
     }
     .stats-row { display: flex; gap: 8px; flex-shrink: 0; }
+    .voice-row { display: grid; grid-template-columns: 220px 1fr; gap: 8px; flex-shrink: 0; }
     .hero-row { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 8px; flex-shrink: 0; }
     .stat-card {
       background: #111; border: 1px solid #1e1e1e;
@@ -169,25 +170,35 @@
     .rank-item img { width: 24px; height: 24px; border-radius: 50%; }
     .rname { flex: 1; color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .rcount { color: #fe2c55; font-weight: 700; flex-shrink: 0; }
+    .voice-controls { display: flex; gap: 8px; align-items: center; padding: 10px 12px; }
+    .voice-btn {
+      background: #202020; color: #fff; border: 1px solid #333;
+      border-radius: 8px; padding: 8px 12px; cursor: pointer; font-size: 0.85rem;
+    }
+    .voice-btn.primary { background: #fe2c55; border-color: #fe2c55; font-weight: 600; }
+    .voice-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .voice-tip { color: #9a9a9a; font-size: 0.78rem; padding: 0 12px 10px; }
+    #voice-status { color: #8bc34a; font-size: 0.8rem; padding: 0 12px 10px; }
+    #voice-last { color: #bbb; font-size: 0.82rem; padding: 0 12px 10px; min-height: 18px; }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>🎵 TikTok Live Monitor</h1>
+  <h1>🎵 Giám sát TikTok Live</h1>
   <div id="connect-form">
-    <input id="username-input" type="text" placeholder="@username da live" />
-    <button id="connect-btn" onclick="connectLive()">Conectar</button>
+    <input id="username-input" type="text" placeholder="@username của live" />
+    <button id="connect-btn" onclick="connectLive()">Kết nối</button>
   </div>
-  <!-- Medidor Euler -->
+  <!-- Đồng hồ Euler -->
   <div id="euler-meter">
     <span class="em-label">⚡ Euler</span>
     <div id="euler-bar-wrap"><div id="euler-bar"></div></div>
-    <span id="euler-count">0 / min</span>
+    <span id="euler-count">0 / phút</span>
   </div>
 </header>
 
-<div id="status-bar">Status: <span id="status-text">aguardando conexão...</span></div>
+<div id="status-bar">Trạng thái: <span id="status-text">đang chờ kết nối...</span></div>
 
 <div class="layout">
   <div class="hero-row">
@@ -196,26 +207,26 @@
       <div class="hero-overlay">
         <img class="hero-avatar" id="creator-avatar" src="" alt="" />
         <div>
-          <div class="hero-title" id="live-title">Sem live carregada</div>
-          <div class="hero-meta" id="creator-meta">Conecte em uma live para ver titulo, criador e imagem.</div>
+          <div class="hero-title" id="live-title">Chưa có live</div>
+          <div class="hero-meta" id="creator-meta">Kết nối một live để xem tiêu đề, chủ phòng và ảnh.</div>
         </div>
       </div>
     </div>
     <div class="hero-card">
-      <div class="card-header">Plano Free Euler</div>
+      <div class="card-header">Gói miễn phí Euler</div>
       <div class="limits-grid">
         <div class="limit-box">
-          <div class="k">Minuto</div>
+          <div class="k">Phút</div>
           <div class="v" id="limit-minute-remaining">-</div>
           <div class="s" id="limit-minute-max">/ -</div>
         </div>
         <div class="limit-box">
-          <div class="k">Hora</div>
+          <div class="k">Giờ</div>
           <div class="v" id="limit-hour-remaining">-</div>
           <div class="s" id="limit-hour-max">/ -</div>
         </div>
         <div class="limit-box">
-          <div class="k">Dia</div>
+          <div class="k">Ngày</div>
           <div class="v" id="limit-day-remaining">-</div>
           <div class="s" id="limit-day-max">/ -</div>
         </div>
@@ -224,33 +235,49 @@
   </div>
 
   <div class="stats-row">
-    <div class="stat-card"><div class="val" id="stat-viewers">0</div><div class="lbl">👁 Viewers</div></div>
-    <div class="stat-card"><div class="val" id="stat-gifts">0</div><div class="lbl">🎁 Gifts</div></div>
-    <div class="stat-card"><div class="val" id="stat-comments">0</div><div class="lbl">💬 Comentários</div></div>
-    <div class="stat-card"><div class="val" id="stat-follows">0</div><div class="lbl">❤️ Seguidores</div></div>
-    <div class="stat-card"><div class="val" id="stat-likes">0</div><div class="lbl">👍 Curtidas</div></div>
+    <div class="stat-card"><div class="val" id="stat-viewers">0</div><div class="lbl">👁 Người xem</div></div>
+    <div class="stat-card"><div class="val" id="stat-gifts">0</div><div class="lbl">🎁 Quà tặng</div></div>
+    <div class="stat-card"><div class="val" id="stat-comments">0</div><div class="lbl">💬 Bình luận</div></div>
+    <div class="stat-card"><div class="val" id="stat-follows">0</div><div class="lbl">❤️ Theo dõi</div></div>
+    <div class="stat-card"><div class="val" id="stat-likes">0</div><div class="lbl">👍 Lượt thích</div></div>
+  </div>
+
+  <div class="voice-row">
+    <div class="card">
+      <div class="card-header">🎙 Trợ lý giọng nói</div>
+      <div class="voice-controls">
+        <button id="voice-start-btn" class="voice-btn primary" onclick="startVoiceListen()">Bật nghe liên tục</button>
+        <button id="voice-stop-btn" class="voice-btn" onclick="stopVoiceListen()" disabled>Tắt</button>
+      </div>
+      <div id="voice-status">Sẵn sàng</div>
+      <div class="voice-tip">Khi bật, bot sẽ nghe -> trả lời -> đọc -> tự nghe lại. Dùng Chrome/Edge để nhận tiếng Việt tốt hơn.</div>
+    </div>
+    <div class="card">
+      <div class="card-header">🗣 Hội thoại gần nhất</div>
+      <div id="voice-last">Chưa có câu hỏi bằng giọng nói.</div>
+    </div>
   </div>
 
   <div class="panels">
     <div class="card">
-      <div class="card-header">💬 Chat ao Vivo</div>
+      <div class="card-header">💬 Chat trực tiếp</div>
       <div class="card-body" id="comment-feed"></div>
     </div>
     <div class="card">
-      <div class="card-header">🎁 Gifts Recebidos</div>
+      <div class="card-header">🎁 Quà nhận được</div>
       <div class="card-body" id="gift-feed"></div>
     </div>
     <div class="card">
-      <div class="card-header">⚡ Atividade</div>
+      <div class="card-header">⚡ Hoạt động</div>
       <div class="card-body" id="event-feed"></div>
     </div>
     <div class="card">
-      <div class="card-header">🏆 TOP Gifters</div>
+      <div class="card-header">🏆 TOP tặng quà</div>
       <div class="card-body" id="ranking"></div>
     </div>
   </div>
 </div>
 
-<script src="/static/app.js?v=20260324-avatars-3"></script>
+<script src="/static/app.js?v=20260520-voice-loop-1"></script>
 </body>
 </html>

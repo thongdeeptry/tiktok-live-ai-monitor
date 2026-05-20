@@ -1,9 +1,9 @@
-# Sounds
+# Âm thanh
 
-Coloque aqui o arquivo `gift.mp3` para o som de alerta de presente.
+Đặt file `gift.mp3` vào đây để có âm báo khi có quà.
 
-Você pode usar qualquer som curto (0.5s - 2s). Sugestões gratuitas:
+Bạn có thể dùng file ngắn (0,5–2 giây). Gợi ý miễn phí:
 - https://pixabay.com/sound-effects/search/notification/
 - https://freesound.org/
 
-O arquivo deve se chamar exatamente: `gift.mp3`
+Tên file phải đúng: `gift.mp3`

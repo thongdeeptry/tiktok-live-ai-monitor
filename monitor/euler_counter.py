@@ -1,6 +1,6 @@
 """
-Intercepta requests HTTP reais do httpx (usado pelo TikTokLive v6+)
-para o host da Euler Stream e conta cada chamada dentro de uma janela de 60s.
+Chặn request HTTP thật của httpx (TikTokLive v6+)
+tới máy chủ Euler Stream và đếm mỗi lần gọi trong cửa sổ 60 giây.
 """
 import time
 
@@ -42,7 +42,7 @@ def _tick():
 
 
 def patch():
-    """Monkey-patch httpx.AsyncClient.send para contar requests reais a Euler."""
+    """Monkey-patch httpx.AsyncClient.send để đếm request thật tới Euler."""
     global _patched
     if _patched or not _HAS_HTTPX:
         return

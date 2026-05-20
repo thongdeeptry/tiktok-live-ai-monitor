@@ -1,10 +1,10 @@
 # 🎵 TikTok Live AI Monitor
 
-Monitor de lives do TikTok com dashboard web em tempo real, som de gift e (fase 2) resposta por IA.
+Giám sát live TikTok với bảng điều khiển web (theo thời gian thực), âm báo quà tặng và (giai đoạn 2) phản hồi AI.
 
-> Leia o [PLANO.md](./PLANO.md) para o plano completo do projeto.
+> Đọc [PLANO.md](./PLANO.md) để xem kế hoạch đầy đủ của dự án.
 
-## 🚀 Instalação Rápida
+## 🚀 Cài đặt nhanh
 
 ```bash
 git clone https://github.com/sonyddr666/tiktok-live-ai-monitor
@@ -14,34 +14,41 @@ cp .env.example .env
 python main.py
 ```
 
-Acesse `http://localhost:8000`, digite o `@username` de qualquer live e clique em **Conectar**.
+Mở `http://localhost:8000`, nhập `@username` của live và bấm **Kết nối**.
 
-## 📦 Features (v0.1 — Monitor Puro)
+## 📦 Tính năng (v0.1 — chỉ giám sát)
 
-- ✅ Conecta em qualquer live pelo `@username`
-- ✅ Dashboard web dark mode em tempo real
-- ✅ Chat ao vivo com avatar dos usuários
-- ✅ Feed de gifts com animação
-- ✅ Ranking TOP 10 gifters
-- ✅ Contadores: viewers, gifts, comentários, seguidores
-- ✅ **Som de alerta ao receber gift** (adicione `web/static/sounds/gift.mp3`)
-- ✅ Reconexão automática em caso de erro
+- ✅ Kết nối live qua `@username`
+- ✅ Giao diện web dark mode (theo thời gian thực)
+- ✅ Chat trực tiếp kèm avatar
+- ✅ Luồng quà có hiệu ứng
+- ✅ Xếp hạng TOP 10 người tặng quà
+- ✅ Đếm: người xem, quà, bình luận, follow, lượt thích
+- ✅ **Âm báo khi có quà** (thêm file `web/static/sounds/gift.mp3`)
+- ✅ Tự kết nối lại khi lỗi
 
-## 🤖 Fase 2 — IA (em desenvolvimento)
+## 🤖 Giai đoạn 2 — AI (đang phát triển)
 
-Ver [PLANO.md](./PLANO.md) para detalhes completos da integração com IA.
+Dự kiến dùng **Groq** (miễn phí): đặt `GROQ_API_KEY` và `AI_MODEL` trong `.env` (xem [PLANO.md](./PLANO.md)).
 
-## 📂 Estrutura
+## 🎙 Trợ lý giọng nói miễn phí
+
+- Nhấn **Bắt đầu nói** trên giao diện web để nói bằng mic.
+- Trình duyệt chuyển giọng nói sang văn bản (STT), gửi lên Groq để tạo câu trả lời.
+- Bot tự đọc lại câu trả lời bằng giọng hệ thống của trình duyệt (TTS).
+- Khuyên dùng **Chrome/Edge** để nhận tiếng Việt ổn định hơn.
+
+## 📂 Cấu trúc
 
 ```
-monitor/collector.py    → captura eventos WebSocket do TikTok
-web/server.py           → backend FastAPI + WebSocket
-web/static/index.html   → dashboard
-web/static/app.js       → frontend
-config/settings.yaml    → todas as configurações
-PLANO.md                → plano completo do projeto
+monitor/collector.py    → bắt sự kiện WebSocket TikTok
+web/server.py           → máy chủ FastAPI + WebSocket
+web/static/index.html   → giao diện web
+web/static/app.js       → JavaScript phía trình duyệt
+config/settings.yaml    → toàn bộ cấu hình
+PLANO.md                → kế hoạch chi tiết
 ```
 
-## ⚠️ Aviso
+## ⚠️ Cảnh báo
 
-Este projeto usa `TikTokLive`, uma biblioteca **não-oficial** baseada em engenharia reversa. Pode deixar de funcionar com atualizações do TikTok.
+Dự án dùng `TikTokLive`, thư viện **không chính thức**. TikTok thay đổi có thể làm hỏng kết nối.

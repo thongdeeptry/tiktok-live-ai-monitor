@@ -1,10 +1,29 @@
-"""Captura eventos do TikTokLive e emite para os handlers registrados."""
+"""Bắt sự kiện TikTokLive và gửi tới các handler đã đăng ký."""
 import asyncio
 import hashlib
 import os
 import time
 from collections import OrderedDict
 from typing import Callable, List
+
+
+def _sanitize_ssl_bundle_env() -> None:
+    """Xóa SSL_CERT_FILE / REQUESTS_CA_BUNDLE nếu trỏ tới file không tồn tại.
+
+    httpx (dùng bởi TikTokLive) đọc các biến này; trên Windows Cursor/WSL đôi khi để
+    đường dẫn Linux hoặc file đã xóa → FileNotFoundError khi tạo AsyncClient.
+    """
+    for key in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
+        raw = os.environ.get(key)
+        if not raw:
+            continue
+        path = raw.strip().strip('"').strip("'")
+        if path and not os.path.isfile(path):
+            os.environ.pop(key, None)
+
+
+_sanitize_ssl_bundle_env()
+
 from TikTokLive import TikTokLiveClient
 from TikTokLive.client.web.web_settings import WebDefaults
 from TikTokLive.events import (
@@ -16,7 +35,7 @@ from monitor.euler_counter import patch as patch_euler, get_stats
 
 patch_euler()
 
-_DEDUP_TTL = 15   # segundos — janela de supressao de duplicatas
+_DEDUP_TTL = 15   # giây — cửa sổ loại trùng lặp
 _DEDUP_MAX = 3000
 
 
@@ -177,7 +196,7 @@ def serialize_gift_info(gift_info: dict | None) -> dict:
             continue
         gifts.append({
             "id": item.get("id") or item.get("gift_id"),
-            "name": item.get("name") or item.get("describe") or "Gift",
+            "name": item.get("name") or item.get("describe") or "Quà",
             "diamond_count": item.get("diamond_count") or item.get("diamondCount") or 0,
             "image": pick_image_url(item.get("image") or item.get("icon") or item.get("gift_image")),
         })
@@ -189,8 +208,8 @@ def serialize_gift_info(gift_info: dict | None) -> dict:
 
 class _DedupCache:
     """
-    Cache LRU+TTL para dedup por chave de conteudo.
-    Chave = hash(tipo + user_id + conteudo_principal).
+    Cache LRU+TTL để loại trùng theo khóa nội dung.
+    Khóa = hash(loại + user_id + nội_dung_chính).
     """
 
     def __init__(self, ttl: int = _DEDUP_TTL, maxsize: int = _DEDUP_MAX):
@@ -205,7 +224,7 @@ class _DedupCache:
     def is_duplicate(self, tipo: str, user_id: str, content: str) -> bool:
         key = self._make_key(tipo, user_id, content)
         now = time.monotonic()
-        # Purge periodico de expirados
+        # Dọn định kỳ các mục hết hạn
         if len(self._store) > self._maxsize // 2:
             expired = [k for k, ts in self._store.items() if now - ts > self._ttl]
             for k in expired:
@@ -214,7 +233,7 @@ class _DedupCache:
             if now - self._store[key] < self._ttl:
                 return True
             del self._store[key]
-        # Evict LRU se cheio
+        # LRU: xóa khi đầy
         if len(self._store) >= self._maxsize:
             self._store.popitem(last=False)
         self._store[key] = now
@@ -272,8 +291,8 @@ class LiveCollector:
                 profile = serialize_user(event.user)
                 uid = profile["username"]
                 text = getattr(event, 'comment', '') or ''
-                # comentarios: user + texto exato. TTL=15s evita suprimir
-                # mensagens iguais enviadas de proposito pelo mesmo user
+                # Bình luận: user + nội dung đúng. TTL=15s tránh nuốt
+                # các tin giống nhau cố ý gửi lặp
                 if self._dup('comment', uid, text):
                     return
                 self._emit({
@@ -297,7 +316,7 @@ class LiveCollector:
                     return
                 profile = serialize_user(event.user)
                 uid = profile["username"]
-                gift_name = getattr(gift, 'name', 'Gift') if gift else 'Gift'
+                gift_name = getattr(gift, 'name', 'Quà') if gift else 'Quà'
                 count = str(getattr(event, 'repeat_count', 1) or 1)
                 if self._dup('gift', uid, gift_name + count):
                     return

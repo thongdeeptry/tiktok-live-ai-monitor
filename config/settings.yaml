@@ -1,7 +1,7 @@
-# TikTok Live AI Monitor — Configurações
+# TikTok Live AI Monitor — Cấu hình
 
 tiktok:
-  default_username: ""   # @username para conectar (pode passar via CLI também)
+  default_username: ""   # @username kết nối (có thể truyền qua CLI)
   reconnect_on_error: true
   reconnect_delay_seconds: 10
 
@@ -11,9 +11,9 @@ web:
   sound_on_gift: true
 
 ai:
-  enabled: false          # false na fase 1 (monitor puro)
-  provider: "openai"      # openai | gemini
-  model: "gpt-4o-mini"
+  enabled: false          # false = giai đoạn 1 chỉ giám sát
+  provider: "groq"        # groq (miễn phí console.groq.com) | openai | gemini (khi có code)
+  model: "llama-3.3-70b-versatile"
   
   trigger_mode: "turn"    # turn | message_threshold | gift | hybrid
   
