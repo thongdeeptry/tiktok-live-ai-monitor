@@ -521,7 +521,7 @@ function scoreMiniGame(profile, points, reason) {
   player.actions++;
   miniGame.teams[player.team].score += amount;
   pushGameFeed(`${displayName(profile)} +${amount} cho ${miniGame.teams[player.team].name} (${reason})`);
-  triggerGameHit(player.team);
+  launchMissiles(player.team, amount);
   renderMiniGame();
 }
 
@@ -557,15 +557,8 @@ function renderMiniGame() {
     : `${fire.score > sea.score ? fire.name : sea.name} đang dẫn`;
   setText('game-status', status);
 
-  const top = Object.values(miniGame.players)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 4);
-  const topEl = document.getElementById('game-top');
-  if (topEl) {
-    topEl.innerHTML = top.length
-      ? top.map((p, i) => `<div class="game-line">${i + 1}. ${esc(displayName(p.profile))} · ${fmtNum(p.score)}đ</div>`).join('')
-      : 'Chưa có ai lên điểm.';
-  }
+  renderTeamRanking('fire');
+  renderTeamRanking('sea');
 
   const feedEl = document.getElementById('game-feed');
   if (feedEl) {
@@ -585,10 +578,23 @@ function renderTeamAvatars(team) {
   const members = Object.values(miniGame.players)
     .filter(player => player.team === team)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 6);
+    .slice(0, 40);
+  const maxScore = Math.max(1, ...members.map(player => player.score));
   el.innerHTML = members.length
-    ? members.map(player => miniGameAvatarMarkup(player.profile)).join('')
+    ? members.map(player => miniGameTeamAvatarMarkup(player, maxScore)).join('')
     : '<span>?</span><span>?</span><span>?</span>';
+}
+
+function renderTeamRanking(team) {
+  const el = document.getElementById(`game-top-${team}`);
+  if (!el) return;
+  const top = Object.values(miniGame.players)
+    .filter(player => player.team === team)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4);
+  el.innerHTML = top.length
+    ? top.map((p, i) => `<div class="game-line">${i + 1}. ${esc(displayName(p.profile))} · ${fmtNum(p.score)}đ</div>`).join('')
+    : 'Chưa có ai lên điểm.';
 }
 
 function renderFighter(team) {
@@ -610,14 +616,48 @@ function miniGameAvatarMarkup(profile) {
   return `<img src="${escAttr(src)}" data-fallback="${escAttr(fallback)}" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src=this.dataset.fallback" alt="" />`;
 }
 
-function triggerGameHit(team) {
-  const card = document.getElementById('game-card');
-  if (!card) return;
-  const cls = team === 'fire' ? 'hit-fire' : 'hit-sea';
-  card.classList.remove('hit-fire', 'hit-sea');
-  void card.offsetWidth;
-  card.classList.add(cls);
-  setTimeout(() => card.classList.remove(cls), 520);
+function miniGameTeamAvatarMarkup(player, maxScore) {
+  const fallback = placeholderAvatar(player.profile);
+  const src = safeUrl(player.profile && player.profile.avatar, fallback);
+  const ratio = Math.max(0, Math.min(1, player.score / Math.max(1, maxScore)));
+  const size = Math.round(24 + ratio * 30);
+  const displayScore = fmtNum(player.score);
+  return `<div class="team-avatar" style="--avatar-size:${size}px" data-score="${escAttr(displayScore)}" title="${escAttr(displayName(player.profile))}: ${escAttr(displayScore)} điểm">
+    <img src="${escAttr(src)}" data-fallback="${escAttr(fallback)}" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src=this.dataset.fallback" alt="" />
+  </div>`;
+}
+
+function launchMissiles(team, points) {
+  const layer = document.getElementById('missile-layer');
+  if (!layer) return;
+  const count = Math.max(1, Math.min(12, Math.ceil(Number(points || 1) / 10)));
+  for (let i = 0; i < count; i++) {
+    setTimeout(() => launchMissile(team), i * 90);
+  }
+}
+
+function launchMissile(team) {
+  const layer = document.getElementById('missile-layer');
+  if (!layer) return;
+  const missile = document.createElement('div');
+  missile.className = `missile ${team}`;
+  missile.textContent = '🚀';
+  const y = 30 + Math.random() * 34;
+  const dy = (Math.random() * 90 - 45).toFixed(0);
+  missile.style.top = `${y}%`;
+  missile.style.setProperty('--dy', `${dy}px`);
+  layer.appendChild(missile);
+
+  setTimeout(() => {
+    const explosion = document.createElement('div');
+    explosion.className = 'explosion';
+    explosion.textContent = '💥';
+    explosion.style.left = team === 'fire' ? `${78 + Math.random() * 8}%` : `${14 + Math.random() * 8}%`;
+    explosion.style.top = `${y + Math.random() * 10 - 5}%`;
+    layer.appendChild(explosion);
+    missile.remove();
+    setTimeout(() => explosion.remove(), 560);
+  }, 860);
 }
 
 function toggleGameFullscreen() {

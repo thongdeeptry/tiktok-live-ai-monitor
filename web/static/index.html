@@ -106,17 +106,36 @@
     .limit-box .s { color: #888; font-size: 0.72rem; margin-top: 2px; }
     .game-card { padding: 10px 12px; gap: 8px; background: radial-gradient(circle at 25% 30%, rgba(254,44,85,0.16), transparent 30%), radial-gradient(circle at 78% 28%, rgba(44,199,255,0.16), transparent 30%), #0e0e0e; }
     .game-card:fullscreen {
-      width: 100vw; height: 100vh; border-radius: 0; border: 0; padding: 24px;
-      background: radial-gradient(circle at 22% 28%, rgba(254,44,85,0.28), transparent 34%), radial-gradient(circle at 80% 30%, rgba(44,199,255,0.28), transparent 34%), #050505;
+      width: min(100vw, 430px); height: 100vh; max-height: 100vh; margin: 0 auto;
+      border-radius: 0; border: 0; padding: 14px; gap: 12px; overflow: hidden;
+      display: flex; flex-direction: column;
+      background: radial-gradient(circle at 22% 18%, rgba(254,44,85,0.34), transparent 32%), radial-gradient(circle at 82% 20%, rgba(44,199,255,0.34), transparent 32%), linear-gradient(180deg, #070707, #020202);
     }
-    .game-card:fullscreen .game-title { font-size: 2.2rem; }
-    .game-card:fullscreen .game-status { font-size: 1.1rem; }
-    .game-card:fullscreen .team-score { font-size: 4.5rem; }
-    .game-card:fullscreen .team-name { font-size: 1.5rem; }
-    .game-card:fullscreen .team-count, .game-card:fullscreen .game-tip, .game-card:fullscreen .game-list { font-size: 1.05rem; }
-    .game-card:fullscreen .battle-stage { min-height: 38vh; }
-    .game-card:fullscreen .fighter { width: 138px; height: 138px; font-size: 4.2rem; }
-    .game-card:fullscreen .battle-impact { width: 150px; height: 150px; font-size: 4rem; }
+    .game-card:fullscreen::backdrop { background: #000; }
+    .game-card:fullscreen .game-title-row { flex-shrink: 0; align-items: flex-start; }
+    .game-card:fullscreen .game-actions { flex-direction: column; align-items: flex-end; gap: 6px; }
+    .game-card:fullscreen .game-title { font-size: 1.55rem; line-height: 1.05; }
+    .game-card:fullscreen .game-status { font-size: 0.95rem; }
+    .game-card:fullscreen .game-action-btn { font-size: 0.75rem; padding: 6px 9px; }
+    .game-card:fullscreen .battle-stage { min-height: 34vh; flex: 0 0 34vh; border-radius: 18px; }
+    .game-card:fullscreen .fighter { width: 112px; height: 112px; font-size: 3.2rem; border-width: 4px; box-shadow: 0 0 28px rgba(255,255,255,0.24); }
+    .game-card:fullscreen .fighter.fire { left: 8%; }
+    .game-card:fullscreen .fighter.sea { right: 8%; }
+    .game-card:fullscreen .battle-impact { width: 128px; height: 128px; font-size: 3.6rem; }
+    .game-card:fullscreen .battle-floor { left: 7%; right: 7%; height: 10px; bottom: 17%; }
+    .game-card:fullscreen .game-teams { grid-template-columns: 1fr; gap: 10px; flex-shrink: 0; }
+    .game-card:fullscreen .team-box { border-radius: 14px; padding: 12px; }
+    .game-card:fullscreen .team-name { font-size: 1.2rem; }
+    .game-card:fullscreen .team-score { font-size: 3.4rem; line-height: 0.95; margin-top: 8px; }
+    .game-card:fullscreen .team-count { font-size: 0.98rem; margin-top: 6px; }
+    .game-card:fullscreen .game-bar-wrap { height: 10px; margin-top: 10px; }
+    .game-card:fullscreen .team-avatars { gap: 8px; min-height: 58px; max-height: 132px; margin-top: 10px; }
+    .game-card:fullscreen .team-avatar, .game-card:fullscreen .team-avatars span { --avatar-size: 46px; width: var(--avatar-size); height: var(--avatar-size); font-size: 1rem; border-width: 2px; }
+    .game-card:fullscreen .game-mini-grid { grid-template-columns: 1fr; gap: 10px; flex: 1; min-height: 0; overflow: hidden; }
+    .game-card:fullscreen .game-list { font-size: 1rem; line-height: 1.35; }
+    .game-card:fullscreen .game-list-title { font-size: 0.9rem; margin-bottom: 5px; color: #aaa; }
+    .game-card:fullscreen .game-line { line-height: 1.35; }
+    .game-card:fullscreen .game-tip { flex-shrink: 0; font-size: 0.9rem; line-height: 1.35; color: #aaa; }
     .game-title-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
     .game-title { color: #fff; font-weight: 800; font-size: 0.9rem; }
     .game-status { color: #8bc34a; font-size: 0.72rem; white-space: nowrap; }
@@ -145,6 +164,7 @@
     .battle-stage {
       position: relative; min-height: 96px; border: 1px solid #202020; border-radius: 10px;
       overflow: hidden; background: linear-gradient(90deg, rgba(254,44,85,0.12), rgba(255,255,255,0.03) 50%, rgba(44,199,255,0.12));
+      container-type: inline-size;
     }
     .battle-floor {
       position: absolute; left: 8%; right: 8%; bottom: 16%; height: 8px;
@@ -163,19 +183,57 @@
       width: 62px; height: 62px; border-radius: 50%; display: grid; place-items: center;
       font-size: 1.8rem; opacity: 0.55; background: radial-gradient(circle, rgba(255,255,255,0.22), transparent 68%);
     }
-    .game-card.hit-fire .fighter.fire { animation: attackFire 0.45s ease; }
-    .game-card.hit-sea .fighter.sea { animation: attackSea 0.45s ease; }
-    .game-card.hit-fire .battle-impact, .game-card.hit-sea .battle-impact { animation: impactPop 0.45s ease; }
-    .team-avatars { display: flex; gap: 4px; margin-top: 6px; min-height: 22px; }
-    .team-avatars img, .team-avatars span {
-      width: 20px; height: 20px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12);
+    .missile-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+    .missile {
+      position: absolute; z-index: 4; font-size: 1.45rem; filter: drop-shadow(0 0 8px rgba(255, 230, 120, 0.75));
+      animation-duration: 0.9s; animation-timing-function: cubic-bezier(.17,.67,.22,1); animation-fill-mode: forwards;
+    }
+    .missile.fire { left: 17%; animation-name: missileFire; }
+    .missile.sea { right: 17%; animation-name: missileSea; }
+    .missile::after {
+      content: ""; position: absolute; left: -22px; top: 50%; width: 24px; height: 4px;
+      background: linear-gradient(90deg, transparent, rgba(255, 180, 40, 0.9)); border-radius: 999px;
+      transform: translateY(-50%);
+    }
+    .missile.sea::after { left: auto; right: -22px; transform: translateY(-50%) scaleX(-1); }
+    .explosion {
+      position: absolute; z-index: 5; width: 58px; height: 58px; display: grid; place-items: center;
+      font-size: 2rem; opacity: 0; transform: translate(-50%, -50%) scale(0.2); animation: explosionPop 0.5s ease forwards;
+    }
+    .team-avatars {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 7px;
+      min-height: 28px; max-height: 68px; overflow: hidden;
+    }
+    .team-avatar, .team-avatars span {
+      --avatar-size: 24px; width: var(--avatar-size); height: var(--avatar-size);
+      border-radius: 50%; border: 1px solid rgba(255,255,255,0.16);
       background: #252525; display: grid; place-items: center; font-size: 0.65rem; color: #aaa;
       object-fit: cover;
     }
+    .team-avatar { position: relative; flex: 0 0 auto; box-shadow: 0 0 12px rgba(255,255,255,0.08); }
+    .team-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
+    .team-avatar::after {
+      content: attr(data-score); position: absolute; right: -3px; bottom: -4px;
+      min-width: 16px; height: 16px; padding: 0 3px; border-radius: 999px;
+      display: grid; place-items: center; background: rgba(0,0,0,0.78); color: #fff;
+      border: 1px solid rgba(255,255,255,0.2); font-size: 0.55rem; font-weight: 800;
+    }
     @keyframes fighterBob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
-    @keyframes attackFire { 0% { transform: translateX(0); } 45% { transform: translateX(45%); } 100% { transform: translateX(0); } }
-    @keyframes attackSea { 0% { transform: translateX(0); } 45% { transform: translateX(-45%); } 100% { transform: translateX(0); } }
-    @keyframes impactPop { 0% { opacity: 0; transform: translate(-50%, -50%) scale(0.2); } 45% { opacity: 1; transform: translate(-50%, -50%) scale(1.25); } 100% { opacity: 0.55; transform: translate(-50%, -50%) scale(0.55); } }
+    @keyframes missileFire {
+      0% { opacity: 0; transform: translate(0, 0) rotate(18deg) scale(0.65); }
+      12% { opacity: 1; }
+      100% { opacity: 1; transform: translate(58cqw, var(--dy, 0px)) rotate(18deg) scale(1.2); }
+    }
+    @keyframes missileSea {
+      0% { opacity: 0; transform: translate(0, 0) rotate(162deg) scale(0.65); }
+      12% { opacity: 1; }
+      100% { opacity: 1; transform: translate(-58cqw, var(--dy, 0px)) rotate(162deg) scale(1.2); }
+    }
+    @keyframes explosionPop {
+      0% { opacity: 0; transform: translate(-50%, -50%) scale(0.2); }
+      35% { opacity: 1; transform: translate(-50%, -50%) scale(1.35); }
+      100% { opacity: 0; transform: translate(-50%, -50%) scale(1.8); }
+    }
 
     .panels {
       display: grid;
@@ -322,6 +380,7 @@
         <div class="fighter fire" id="game-fire-fighter">🔥</div>
         <div class="battle-impact">💥</div>
         <div class="fighter sea" id="game-sea-fighter">🌊</div>
+        <div class="missile-layer" id="missile-layer"></div>
       </div>
       <div class="game-teams">
         <div class="team-box fire">
@@ -341,13 +400,17 @@
       </div>
       <div class="game-mini-grid">
         <div class="game-list">
-          <div class="game-list-title">Top MVP</div>
-          <div id="game-top">Chưa có ai lên điểm.</div>
+          <div class="game-list-title">BXH Team Lửa</div>
+          <div id="game-top-fire">Chưa có ai lên điểm.</div>
         </div>
         <div class="game-list">
-          <div class="game-list-title">Combat mới</div>
-          <div id="game-feed">User vào phòng là tự nhập team.</div>
+          <div class="game-list-title">BXH Team Biển</div>
+          <div id="game-top-sea">Chưa có ai lên điểm.</div>
         </div>
+      </div>
+      <div class="game-list">
+        <div class="game-list-title">Combat mới</div>
+        <div id="game-feed">User vào phòng là tự nhập team.</div>
       </div>
       <div class="game-tip">Comment 1 để vào Team Lửa, comment 2 để vào Team Biển. Sau khi chọn: comment +2, like +1, follow +8, quà theo xu.</div>
     </div>
@@ -397,6 +460,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=20260520-minigame-fullscreen-1"></script>
+<script src="/static/app.js?v=20260520-minigame-avatar-scale-1"></script>
 </body>
 </html>
