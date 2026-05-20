@@ -6,22 +6,16 @@ let statsGifts = 0, statsComments = 0, statsFollows = 0, statsLikes = 0;
 let speechRecognition = null;
 let speechSynth = window.speechSynthesis;
 let isListening = false;
-let autoVoiceEnabled = false;
+let autoVoiceEnabled = true;
 let isProcessingVoice = false;
-let voiceRestartTimer = null;
 let ttsQueue = [];
 let ttsBusy = false;
 let commentAiQueue = [];
 let lastJoinGreetAt = 0;
-let lastCommentAiAt = 0;
 let voiceRunToken = 0;
 const JOIN_GREET_COOLDOWN_MS = 3500;
-const MAX_TTS_QUEUE = 6;
-const TTS_OVERLOAD_QUEUE = 3;
-const TTS_LIVE_COOLDOWN_MS = 2500;
 const COMMENT_AI_COOLDOWN_MS = 6500;
-const MAX_COMMENT_AI_QUEUE = 5;
-let lastLiveTtsAt = 0;
+let ttsOrder = 0;
 
 // Chống trùng — cửa sổ 5 giây theo loại+user+nội dung (tránh lặp batch TikTokLive)
 const _seen = new Set();
@@ -93,25 +87,8 @@ function updateVoiceLast(msg) {
 function setVoiceButtons(listening) {
   const startBtn = document.getElementById('voice-start-btn');
   const stopBtn = document.getElementById('voice-stop-btn');
-  if (startBtn) startBtn.disabled = autoVoiceEnabled || listening;
-  if (stopBtn) stopBtn.disabled = !(autoVoiceEnabled || listening || isProcessingVoice);
-}
-
-function clearVoiceRestartTimer() {
-  if (!voiceRestartTimer) return;
-  clearTimeout(voiceRestartTimer);
-  voiceRestartTimer = null;
-}
-
-function scheduleNextListen(delayMs = 500) {
-  if (!autoVoiceEnabled || isListening || isProcessingVoice) return;
-  clearVoiceRestartTimer();
-  voiceRestartTimer = setTimeout(() => {
-    voiceRestartTimer = null;
-    if (autoVoiceEnabled && !isListening && !isProcessingVoice) {
-      startVoiceListen();
-    }
-  }, delayMs);
+  if (startBtn) startBtn.disabled = true;
+  if (stopBtn) stopBtn.disabled = true;
 }
 
 function _speakOnce(text, { interrupt = true } = {}) {
@@ -140,49 +117,37 @@ async function ttsDrainQueue() {
   ttsBusy = true;
   try {
     while (ttsQueue.length > 0) {
-      if (autoVoiceEnabled || isListening || isProcessingVoice) {
-        ttsQueue = [];
-        break;
-      }
+      ttsQueue.sort((a, b) => (b.priority - a.priority) || (a.order - b.order));
       const item = ttsQueue.shift();
       if (!item || !item.text) continue;
       // Không interrupt khi đang phát hàng đợi, để nghe tự nhiên.
       await _speakOnce(item.text, { interrupt: false });
+      if (item.resolve) item.resolve();
     }
   } finally {
     ttsBusy = false;
   }
 }
 
-function ttsEnqueue(text) {
+function ttsEnqueue(text, { priority = 0 } = {}) {
   const t = String(text || '').trim();
-  if (!t) return;
-  if (autoVoiceEnabled || isListening || isProcessingVoice) return;
+  if (!t) return Promise.resolve();
 
-  const now = Date.now();
-  const isOverload = ttsQueue.length >= TTS_OVERLOAD_QUEUE || now - lastLiveTtsAt < TTS_LIVE_COOLDOWN_MS;
-  if (isOverload && Math.random() > 0.28) return;
-  lastLiveTtsAt = now;
-
-  // Khi live dồn dập, không đọc hết. Giữ hàng đợi ngắn và thay ngẫu nhiên
-  // một câu cũ để âm thanh không bị kéo dài hoặc bị cắt ngang liên tục.
-  if (ttsQueue.length >= MAX_TTS_QUEUE) {
-    const replaceIndex = Math.floor(Math.random() * MAX_TTS_QUEUE);
-    ttsQueue[replaceIndex] = { text: t };
-    return;
-  }
-  ttsQueue.push({ text: t });
-  ttsDrainQueue();
+  return new Promise((resolve) => {
+    ttsQueue.push({ text: t, priority, order: ttsOrder++, resolve });
+    ttsDrainQueue();
+  });
 }
 
 function ttsClearAll() {
+  ttsQueue.forEach(item => { if (item && item.resolve) item.resolve(); });
   ttsQueue = [];
   try { if (speechSynth) speechSynth.cancel(); } catch (_) {}
 }
 
-// Dùng cho voice assistant: chỉ cancel tiếng cũ ở đầu lượt, không tự ngắt giữa comment và câu trả lời.
+// Dùng cho voice assistant: đi qua hàng đợi chung để không ngắt quà/chào/comment khác.
 function speakText(text) {
-  return _speakOnce(text, { interrupt: false });
+  return ttsEnqueue(text, { priority: 1 });
 }
 
 async function askVoiceAI(text) {
@@ -201,16 +166,8 @@ function enqueueCommentAI(profile, text) {
   const msg = String(text || '').replace(/\s+/g, ' ').trim();
   if (!msg || msg.length > 220) return;
 
-  const now = Date.now();
-  const busy = isProcessingVoice || commentAiQueue.length > 0 || now - lastCommentAiAt < COMMENT_AI_COOLDOWN_MS;
-  if (busy && Math.random() > 0.35) return;
-
   const item = { profile, text: msg };
-  if (commentAiQueue.length >= MAX_COMMENT_AI_QUEUE) {
-    commentAiQueue[Math.floor(Math.random() * MAX_COMMENT_AI_QUEUE)] = item;
-  } else {
-    commentAiQueue.push(item);
-  }
+  commentAiQueue.push(item);
   processCommentAIQueue();
 }
 
@@ -220,10 +177,7 @@ async function processCommentAIQueue() {
   if (!item) return;
 
   isProcessingVoice = true;
-  lastCommentAiAt = Date.now();
   const runToken = voiceRunToken;
-  ttsQueue = [];
-  try { if (speechSynth) speechSynth.cancel(); } catch (_) {}
   setVoiceButtons(false);
 
   const name = displayName(item.profile);
@@ -235,7 +189,7 @@ async function processCommentAIQueue() {
     await speakText(question);
     if (!autoVoiceEnabled || runToken !== voiceRunToken) return;
 
-    const reply = await askVoiceAI(`Trả lời comment TikTok Live của ${name}: ${item.text}`);
+    const reply = await askVoiceAI(`Trả lời comment TikTok Live của ${name}: ${item.text}. Trả lời cực ngắn, vui vui, troll nhẹ kiểu Gen Z Việt Nam, không toxic.`);
     if (!autoVoiceEnabled || runToken !== voiceRunToken) return;
 
     updateVoiceLast(`${question} | Bot: ${reply}`);
@@ -258,27 +212,19 @@ function startVoiceListen() {
   autoVoiceEnabled = true;
   voiceRunToken++;
   isListening = false;
-  clearVoiceRestartTimer();
-  ttsClearAll();
-  updateVoiceStatus('Đang bật AI trả lời comment...');
-  updateVoiceLast('Bot sẽ chọn ngẫu nhiên comment để đọc và trả lời.');
+  updateVoiceStatus('AI trả lời comment đang tự bật');
+  updateVoiceLast('Bot sẽ tự đọc comment và trả lời ngắn gọn.');
   setVoiceButtons(false);
   processCommentAIQueue();
 }
 
 function stopVoiceListen() {
-  autoVoiceEnabled = false;
+  autoVoiceEnabled = true;
   voiceRunToken++;
   isProcessingVoice = false;
   commentAiQueue = [];
-  clearVoiceRestartTimer();
-  ttsClearAll();
-  updateVoiceStatus('Đã tắt AI trả lời comment');
+  updateVoiceStatus('AI trả lời comment luôn bật');
   setVoiceButtons(false);
-  if (!speechRecognition || !isListening) return;
-  try {
-    speechRecognition.stop();
-  } catch (_) {}
 }
 
 // --- WebSocket ---
@@ -463,7 +409,7 @@ function addGift(d) {
     const name = displayName(profile);
     const giftName = String(d.gift_name || 'quà').trim() || 'quà';
     const thanks = buildGiftThanks({ name, giftName, qty, total });
-    if (thanks) ttsEnqueue(thanks);
+    if (thanks) ttsEnqueue(thanks, { priority: 3 });
   } catch (_) {}
 }
 
@@ -531,14 +477,13 @@ function addJoin(d) {
   if (isDup(key)) return;
   const profile = getProfile(d);
   addEventFeed('đã vào phòng', d.nickname, d.user, '\ud83d\udfe2', profile);
-  if (autoVoiceEnabled || isProcessingVoice) return;
 
   // Chào người mới với cooldown để không bị spam khi phòng đông.
   const now = Date.now();
   if (now - lastJoinGreetAt < JOIN_GREET_COOLDOWN_MS) return;
   lastJoinGreetAt = now;
   const welcome = buildJoinWelcome(profile);
-  if (welcome) ttsEnqueue(welcome);
+  if (welcome) ttsEnqueue(welcome, { priority: 0 });
 }
 
 function buildJoinWelcome(profile) {
@@ -674,6 +619,5 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('username-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') connectLive();
   });
-  setVoiceButtons(false);
-  updateVoiceStatus('Sẵn sàng');
+  startVoiceListen();
 });

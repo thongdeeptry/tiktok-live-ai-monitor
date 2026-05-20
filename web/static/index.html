@@ -245,16 +245,12 @@
   <div class="voice-row">
     <div class="card">
       <div class="card-header">🎙 AI trả lời comment</div>
-      <div class="voice-controls">
-        <button id="voice-start-btn" class="voice-btn primary" onclick="startVoiceListen()">Bật trả lời comment</button>
-        <button id="voice-stop-btn" class="voice-btn" onclick="stopVoiceListen()" disabled>Tắt</button>
-      </div>
-      <div id="voice-status">Sẵn sàng</div>
-      <div class="voice-tip">Khi bật, bot sẽ chọn ngẫu nhiên comment, đọc comment đó rồi dùng AI trả lời. Không cần mic.</div>
+      <div id="voice-status">AI trả lời comment đang tự bật</div>
+      <div class="voice-tip">Bot tự đọc comment và trả lời ngắn gọn. Quà tặng và chào người mới vẫn được đọc trong cùng hàng đợi.</div>
     </div>
     <div class="card">
       <div class="card-header">🗣 Hội thoại gần nhất</div>
-      <div id="voice-last">Chưa có câu hỏi bằng giọng nói.</div>
+      <div id="voice-last">Chưa có comment để trả lời.</div>
     </div>
   </div>
 
@@ -278,6 +274,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=20260520-comment-ai-1"></script>
+<script src="/static/app.js?v=20260520-comment-ai-2"></script>
 </body>
 </html>
