@@ -176,30 +176,6 @@ function playAudioUrl(url) {
   });
 }
 
-function browserSpeakOnce(text, { interrupt = true } = {}) {
-  return new Promise((resolve) => {
-    if (!text || !speechSynth) {
-      resolve();
-      return;
-    }
-    try {
-      if (interrupt) speechSynth.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'vi-VN';
-      const voice = getPreferredVoice();
-      if (voice) u.voice = voice;
-      u.rate = 0.9;
-      u.pitch = 1.08;
-      u.volume = 1;
-      u.onend = () => resolve();
-      u.onerror = () => resolve();
-      speechSynth.speak(u);
-    } catch (_) {
-      resolve();
-    }
-  });
-}
-
 async function _speakOnce(text, { interrupt = true } = {}) {
   const cleanText = sanitizeTtsText(text);
   if (!cleanText) return;
@@ -208,8 +184,7 @@ async function _speakOnce(text, { interrupt = true } = {}) {
     const url = await fetchEdgeTtsUrl(cleanText);
     await playAudioUrl(url);
   } catch (e) {
-    console.warn('Edge TTS fallback:', e.message || e);
-    await browserSpeakOnce(cleanText, { interrupt });
+    console.warn('Edge TTS skipped:', e.message || e);
   }
 }
 
@@ -238,10 +213,7 @@ async function ttsDrainQueue() {
           await playAudioUrl(url);
         }
       } catch (e) {
-        console.warn('Edge TTS item fallback:', e.message || e);
-        for (const part of item.parts) {
-          await browserSpeakOnce(part, { interrupt: false });
-        }
+        console.warn('Edge TTS item skipped:', e.message || e);
       }
       if (item.resolve) item.resolve();
     }
