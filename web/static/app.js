@@ -11,9 +11,16 @@ let isProcessingVoice = false;
 let voiceRestartTimer = null;
 let ttsQueue = [];
 let ttsBusy = false;
+let commentAiQueue = [];
 let lastJoinGreetAt = 0;
+let lastCommentAiAt = 0;
 const JOIN_GREET_COOLDOWN_MS = 3500;
-const MAX_TTS_QUEUE = 16;
+const MAX_TTS_QUEUE = 6;
+const TTS_OVERLOAD_QUEUE = 3;
+const TTS_LIVE_COOLDOWN_MS = 2500;
+const COMMENT_AI_COOLDOWN_MS = 6500;
+const MAX_COMMENT_AI_QUEUE = 5;
+let lastLiveTtsAt = 0;
 
 // Chống trùng — cửa sổ 5 giây theo loại+user+nội dung (tránh lặp batch TikTokLive)
 const _seen = new Set();
@@ -132,6 +139,10 @@ async function ttsDrainQueue() {
   ttsBusy = true;
   try {
     while (ttsQueue.length > 0) {
+      if (autoVoiceEnabled || isListening || isProcessingVoice) {
+        ttsQueue = [];
+        break;
+      }
       const item = ttsQueue.shift();
       if (!item || !item.text) continue;
       // Không interrupt khi đang phát hàng đợi, để nghe tự nhiên.
@@ -145,8 +156,20 @@ async function ttsDrainQueue() {
 function ttsEnqueue(text) {
   const t = String(text || '').trim();
   if (!t) return;
-  // Tránh phình hàng đợi khi room vào dồn dập
-  if (ttsQueue.length >= MAX_TTS_QUEUE) ttsQueue.shift();
+  if (autoVoiceEnabled || isListening || isProcessingVoice) return;
+
+  const now = Date.now();
+  const isOverload = ttsQueue.length >= TTS_OVERLOAD_QUEUE || now - lastLiveTtsAt < TTS_LIVE_COOLDOWN_MS;
+  if (isOverload && Math.random() > 0.28) return;
+  lastLiveTtsAt = now;
+
+  // Khi live dồn dập, không đọc hết. Giữ hàng đợi ngắn và thay ngẫu nhiên
+  // một câu cũ để âm thanh không bị kéo dài hoặc bị cắt ngang liên tục.
+  if (ttsQueue.length >= MAX_TTS_QUEUE) {
+    const replaceIndex = Math.floor(Math.random() * MAX_TTS_QUEUE);
+    ttsQueue[replaceIndex] = { text: t };
+    return;
+  }
   ttsQueue.push({ text: t });
   ttsDrainQueue();
 }
@@ -172,97 +195,74 @@ async function askVoiceAI(text) {
   return data.reply || '';
 }
 
-function ensureRecognition() {
-  if (speechRecognition) return speechRecognition;
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return null;
-  const rec = new SR();
-  rec.lang = 'vi-VN';
-  rec.interimResults = false;
-  rec.maxAlternatives = 1;
-  rec.continuous = false;
+function enqueueCommentAI(profile, text) {
+  if (!autoVoiceEnabled) return;
+  const msg = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!msg || msg.length > 220) return;
 
-  rec.onstart = () => {
-    isListening = true;
-    setVoiceButtons(true);
-    updateVoiceStatus('Đang nghe liên tục... hãy nói tự nhiên');
-  };
+  const now = Date.now();
+  const busy = isProcessingVoice || commentAiQueue.length > 0 || now - lastCommentAiAt < COMMENT_AI_COOLDOWN_MS;
+  if (busy && Math.random() > 0.35) return;
 
-  rec.onend = () => {
-    isListening = false;
+  const item = { profile, text: msg };
+  if (commentAiQueue.length >= MAX_COMMENT_AI_QUEUE) {
+    commentAiQueue[Math.floor(Math.random() * MAX_COMMENT_AI_QUEUE)] = item;
+  } else {
+    commentAiQueue.push(item);
+  }
+  processCommentAIQueue();
+}
+
+async function processCommentAIQueue() {
+  if (!autoVoiceEnabled || isProcessingVoice || commentAiQueue.length === 0) return;
+  const item = commentAiQueue.shift();
+  if (!item) return;
+
+  isProcessingVoice = true;
+  lastCommentAiAt = Date.now();
+  ttsQueue = [];
+  setVoiceButtons(false);
+
+  const name = displayName(item.profile);
+  const question = `${name} bình luận: ${item.text}`;
+  updateVoiceLast(question);
+  updateVoiceStatus('Đang trả lời comment...');
+
+  try {
+    await speakText(question);
+    const reply = await askVoiceAI(`Trả lời comment TikTok Live của ${name}: ${item.text}`);
+    updateVoiceLast(`${question} | Bot: ${reply}`);
+    await speakText(reply);
+    updateVoiceStatus(autoVoiceEnabled ? 'Đang chờ comment tiếp theo...' : 'Đã tắt trả lời comment');
+  } catch (e) {
+    updateVoiceStatus(`Lỗi AI: ${e.message || e}`);
+  } finally {
+    isProcessingVoice = false;
     setVoiceButtons(false);
     if (autoVoiceEnabled) {
-      if (isProcessingVoice) {
-        updateVoiceStatus('Đang xử lý câu trả lời...');
-      } else {
-        updateVoiceStatus('Đang chờ để nghe lại...');
-        scheduleNextListen(450);
-      }
-    } else {
-      updateVoiceStatus('Đã dừng nghe');
+      setTimeout(processCommentAIQueue, COMMENT_AI_COOLDOWN_MS);
     }
-  };
-
-  rec.onerror = (event) => {
-    isListening = false;
-    setVoiceButtons(false);
-    updateVoiceStatus(`Lỗi mic/STT: ${event.error || 'không xác định'}`);
-    if (autoVoiceEnabled) scheduleNextListen(1200);
-  };
-
-  rec.onresult = async (event) => {
-    const spoken = (event.results?.[0]?.[0]?.transcript || '').trim();
-    if (!spoken) {
-      updateVoiceStatus('Không nghe rõ, bạn thử nói lại nhé.');
-      if (autoVoiceEnabled) scheduleNextListen(500);
-      return;
-    }
-    isProcessingVoice = true;
-    setVoiceButtons(false);
-    updateVoiceLast(`Bạn: ${spoken}`);
-    updateVoiceStatus('Đang hỏi AI...');
-    try {
-      const reply = await askVoiceAI(spoken);
-      updateVoiceLast(`Bạn: ${spoken} | Trợ lý: ${reply}`);
-      updateVoiceStatus('Đang đọc câu trả lời...');
-      await speakText(reply);
-      updateVoiceStatus(autoVoiceEnabled ? 'Đã trả lời, chuẩn bị nghe lại...' : 'Đã trả lời xong');
-    } catch (e) {
-      updateVoiceStatus(`Lỗi AI: ${e.message || e}`);
-    } finally {
-      isProcessingVoice = false;
-      setVoiceButtons(false);
-      if (autoVoiceEnabled) scheduleNextListen(600);
-    }
-  };
-
-  speechRecognition = rec;
-  return rec;
+  }
 }
 
 function startVoiceListen() {
-  const rec = ensureRecognition();
-  if (!rec) {
-    updateVoiceStatus('Trình duyệt không hỗ trợ nhận giọng nói (dùng Chrome/Edge).');
-    return;
-  }
   autoVoiceEnabled = true;
+  isListening = false;
   clearVoiceRestartTimer();
-  if (isListening) return;
-  try {
-    rec.start();
-  } catch (_) {
-    scheduleNextListen(600);
-  }
-  setVoiceButtons(isListening);
+  ttsClearAll();
+  updateVoiceStatus('Đang bật AI trả lời comment...');
+  updateVoiceLast('Bot sẽ chọn ngẫu nhiên comment để đọc và trả lời.');
+  setVoiceButtons(false);
+  processCommentAIQueue();
 }
 
 function stopVoiceListen() {
   autoVoiceEnabled = false;
   isProcessingVoice = false;
+  commentAiQueue = [];
   clearVoiceRestartTimer();
   ttsClearAll();
-  updateVoiceStatus('Đã tắt chế độ nghe liên tục');
+  updateVoiceStatus('Đã tắt AI trả lời comment');
   setVoiceButtons(false);
   if (!speechRecognition || !isListening) return;
   try {
@@ -401,6 +401,13 @@ function addComment(d) {
     </div>`;
   feed.prepend(el);
   trim(feed, 120);
+
+  if (autoVoiceEnabled) {
+    enqueueCommentAI(profile, d.text);
+  } else {
+    const commentRead = buildCommentRead(profile, d.text);
+    if (commentRead) ttsEnqueue(commentRead);
+  }
 }
 
 function addGift(d) {
@@ -461,39 +468,40 @@ function buildGiftThanks({ name, giftName, qty, total }) {
   const t = Number(total || 0) || 0;
 
   const giftPart = q > 1 ? `${q} ${g}` : g;
-  const totalPart = t > 0 ? ` (${fmtNum(t)} xu)` : '';
+  const valuePart = t > 0 ? `, tổng ${fmtNum(t)} xu` : '';
+  const giftDetail = `${giftPart}${valuePart}`;
 
   // Câu phải "giống thật": ngắn, tự nhiên, không quá khuôn mẫu
   if (t >= 1000) {
     return pick([
-      `${n} chơi lớn quá, cảm ơn ${n} nhiều nha${totalPart}.`,
-      `Ui ${n}, quà này VIP thật. Cảm ơn ${n} nha${totalPart}.`,
-      `Cảm ơn ${n} nhiều lắm, quá xịn luôn${totalPart}.`,
-      `${n} tặng ${giftPart} mà đỉnh quá. Cảm ơn nha${totalPart}.`,
+      `${n} chơi lớn quá, cảm ơn ${n} đã tặng ${giftDetail}.`,
+      `Ui ${n}, ${giftDetail} VIP thật. Cảm ơn ${n} nha.`,
+      `Cảm ơn ${n} nhiều lắm, phần quà ${giftDetail} quá xịn luôn.`,
+      `${n} tặng ${giftDetail} mà đỉnh quá. Cảm ơn nha.`,
     ]);
   }
   if (t >= 200) {
     return pick([
-      `Cảm ơn ${n} nha, quà xịn quá${totalPart}.`,
-      `Đỉnh quá ${n}, cảm ơn nhiều${totalPart}.`,
-      `${n} tặng ${giftPart} là mình vui liền. Cảm ơn nha${totalPart}.`,
-      `Cảm ơn ${n} nhiều nha, quá có tâm${totalPart}.`,
+      `Cảm ơn ${n} nha, ${giftDetail} xịn quá.`,
+      `Đỉnh quá ${n}, cảm ơn nhiều vì ${giftDetail}.`,
+      `${n} tặng ${giftDetail} là mình vui liền. Cảm ơn nha.`,
+      `Cảm ơn ${n} nhiều nha, ${giftDetail} quá có tâm.`,
     ]);
   }
   if (t >= 50) {
     return pick([
-      `Cảm ơn ${n} nha${totalPart}.`,
-      `Cảm ơn ${n} nhiều${totalPart}.`,
-      `${n} dễ thương quá, cảm ơn nha${totalPart}.`,
-      `Cảm ơn ${n} đã tặng ${giftPart}${totalPart}.`,
+      `Cảm ơn ${n} nha, mình nhận được ${giftDetail}.`,
+      `Cảm ơn ${n} nhiều vì ${giftDetail}.`,
+      `${n} dễ thương quá, cảm ơn vì ${giftDetail}.`,
+      `Cảm ơn ${n} đã tặng ${giftDetail}.`,
     ]);
   }
   // xu ít: đơn giản, gọn
   return pick([
-    `Cảm ơn ${n}.`,
-    `Cảm ơn ${n} nha.`,
-    `Cảm ơn ${n} tặng ${giftPart}.`,
-    `Cảm ơn nha ${n}.`,
+    `Cảm ơn ${n} đã tặng ${giftDetail}.`,
+    `Cảm ơn ${n} nha, mình nhận được ${giftDetail}.`,
+    `Cảm ơn ${n} tặng ${giftDetail}.`,
+    `Cảm ơn nha ${n}, phần quà ${giftDetail} dễ thương quá.`,
   ]);
 }
 
@@ -512,6 +520,7 @@ function addJoin(d) {
   if (isDup(key)) return;
   const profile = getProfile(d);
   addEventFeed('đã vào phòng', d.nickname, d.user, '\ud83d\udfe2', profile);
+  if (autoVoiceEnabled || isProcessingVoice) return;
 
   // Chào người mới với cooldown để không bị spam khi phòng đông.
   const now = Date.now();
@@ -537,6 +546,17 @@ function buildJoinWelcome(profile) {
     `${n} ghé live rồi, @${profile.username} thấy được thì chào mọi người nhé.`,
   ];
   return hasUser ? pick([...simple, ...withHandle]) : pick(simple);
+}
+
+function buildCommentRead(profile, text) {
+  const msg = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!msg || msg.length > 120) return '';
+  const n = displayName(profile);
+  return pick([
+    `${n} bình luận: ${msg}`,
+    `${n} nói: ${msg}`,
+    `Comment của ${n}: ${msg}`,
+  ]);
 }
 
 function addLike(d) {
