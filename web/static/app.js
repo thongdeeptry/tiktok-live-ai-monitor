@@ -94,12 +94,18 @@ function setVoiceButtons(listening) {
 
 function getPreferredVoice() {
   if (preferredVoice || !speechSynth) return preferredVoice;
+  return refreshPreferredVoice();
+}
+
+function refreshPreferredVoice() {
+  if (!speechSynth) return null;
   const voices = speechSynth.getVoices ? speechSynth.getVoices() : [];
   const scored = voices
     .map(voice => ({ voice, score: voiceScore(voice) }))
     .filter(item => item.score > 0)
     .sort((a, b) => b.score - a.score);
   preferredVoice = scored.length > 0 ? scored[0].voice : null;
+  if (preferredVoice) console.log('Selected TTS voice:', preferredVoice.name, preferredVoice.lang);
   return preferredVoice;
 }
 
@@ -664,7 +670,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('username-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') connectLive();
   });
-  getPreferredVoice();
-  if (speechSynth) speechSynth.onvoiceschanged = getPreferredVoice;
+  refreshPreferredVoice();
+  if (speechSynth) speechSynth.onvoiceschanged = refreshPreferredVoice;
   startVoiceListen();
 });
