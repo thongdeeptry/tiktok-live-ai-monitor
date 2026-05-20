@@ -14,6 +14,7 @@ let ttsBusy = false;
 let commentAiQueue = [];
 let lastJoinGreetAt = 0;
 let lastCommentAiAt = 0;
+let voiceRunToken = 0;
 const JOIN_GREET_COOLDOWN_MS = 3500;
 const MAX_TTS_QUEUE = 6;
 const TTS_OVERLOAD_QUEUE = 3;
@@ -179,9 +180,9 @@ function ttsClearAll() {
   try { if (speechSynth) speechSynth.cancel(); } catch (_) {}
 }
 
-// Dùng cho voice assistant: đọc xong mới nghe lại, nên interrupt để phản hồi nhanh.
+// Dùng cho voice assistant: chỉ cancel tiếng cũ ở đầu lượt, không tự ngắt giữa comment và câu trả lời.
 function speakText(text) {
-  return _speakOnce(text, { interrupt: true });
+  return _speakOnce(text, { interrupt: false });
 }
 
 async function askVoiceAI(text) {
@@ -220,7 +221,9 @@ async function processCommentAIQueue() {
 
   isProcessingVoice = true;
   lastCommentAiAt = Date.now();
+  const runToken = voiceRunToken;
   ttsQueue = [];
+  try { if (speechSynth) speechSynth.cancel(); } catch (_) {}
   setVoiceButtons(false);
 
   const name = displayName(item.profile);
@@ -230,9 +233,15 @@ async function processCommentAIQueue() {
 
   try {
     await speakText(question);
+    if (!autoVoiceEnabled || runToken !== voiceRunToken) return;
+
     const reply = await askVoiceAI(`Trả lời comment TikTok Live của ${name}: ${item.text}`);
+    if (!autoVoiceEnabled || runToken !== voiceRunToken) return;
+
     updateVoiceLast(`${question} | Bot: ${reply}`);
     await speakText(reply);
+    if (!autoVoiceEnabled || runToken !== voiceRunToken) return;
+
     updateVoiceStatus(autoVoiceEnabled ? 'Đang chờ comment tiếp theo...' : 'Đã tắt trả lời comment');
   } catch (e) {
     updateVoiceStatus(`Lỗi AI: ${e.message || e}`);
@@ -247,6 +256,7 @@ async function processCommentAIQueue() {
 
 function startVoiceListen() {
   autoVoiceEnabled = true;
+  voiceRunToken++;
   isListening = false;
   clearVoiceRestartTimer();
   ttsClearAll();
@@ -258,6 +268,7 @@ function startVoiceListen() {
 
 function stopVoiceListen() {
   autoVoiceEnabled = false;
+  voiceRunToken++;
   isProcessingVoice = false;
   commentAiQueue = [];
   clearVoiceRestartTimer();
