@@ -69,7 +69,7 @@
     }
     .stats-row { display: flex; gap: 8px; flex-shrink: 0; }
     .voice-row { display: grid; grid-template-columns: 220px 1fr; gap: 8px; flex-shrink: 0; }
-    .hero-row { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 8px; flex-shrink: 0; }
+    .hero-row { display: grid; grid-template-columns: 1.1fr 0.72fr 1fr; gap: 8px; flex-shrink: 0; }
     .stat-card {
       background: #111; border: 1px solid #1e1e1e;
       border-radius: 10px; padding: 10px 14px; flex: 1; text-align: center;
@@ -104,6 +104,26 @@
     .limit-box .k { color: #666; font-size: 0.72rem; }
     .limit-box .v { color: #fff; font-size: 1rem; font-weight: 700; margin-top: 4px; }
     .limit-box .s { color: #888; font-size: 0.72rem; margin-top: 2px; }
+    .game-card { padding: 10px 12px; gap: 8px; }
+    .game-title-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .game-title { color: #fff; font-weight: 800; font-size: 0.9rem; }
+    .game-status { color: #8bc34a; font-size: 0.72rem; white-space: nowrap; }
+    .game-teams { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .team-box { background: #151515; border: 1px solid #252525; border-radius: 8px; padding: 8px; min-width: 0; }
+    .team-box.fire { border-color: #5a1a22; background: #1b0b10; }
+    .team-box.sea { border-color: #11435a; background: #071620; }
+    .team-name { font-weight: 800; font-size: 0.8rem; display: flex; justify-content: space-between; gap: 8px; }
+    .team-score { font-size: 1.35rem; font-weight: 900; margin-top: 4px; color: #fff; }
+    .team-count { color: #888; font-size: 0.68rem; margin-top: 2px; }
+    .game-bar-wrap { height: 6px; background: #242424; border-radius: 4px; overflow: hidden; margin-top: 6px; }
+    .game-bar { height: 100%; width: 50%; border-radius: 4px; transition: width 0.25s ease; }
+    .game-bar.fire { background: #fe2c55; }
+    .game-bar.sea { background: #2cc7ff; }
+    .game-mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-height: 0; }
+    .game-list { color: #aaa; font-size: 0.7rem; line-height: 1.35; min-width: 0; }
+    .game-list-title { color: #666; font-size: 0.68rem; margin-bottom: 3px; }
+    .game-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .game-tip { color: #777; font-size: 0.68rem; }
 
     .panels {
       display: grid;
@@ -237,6 +257,37 @@
         </div>
       </div>
     </div>
+    <div class="hero-card game-card">
+      <div class="game-title-row">
+        <div class="game-title">⚔️ Đại chiến team</div>
+        <div class="game-status" id="game-status">Đang chờ người chơi</div>
+      </div>
+      <div class="game-teams">
+        <div class="team-box fire">
+          <div class="team-name"><span>🔥 Team Lửa</span><span id="game-fire-lead">0%</span></div>
+          <div class="team-score" id="game-fire-score">0</div>
+          <div class="team-count" id="game-fire-count">0 chiến binh</div>
+          <div class="game-bar-wrap"><div class="game-bar fire" id="game-fire-bar"></div></div>
+        </div>
+        <div class="team-box sea">
+          <div class="team-name"><span>🌊 Team Biển</span><span id="game-sea-lead">0%</span></div>
+          <div class="team-score" id="game-sea-score">0</div>
+          <div class="team-count" id="game-sea-count">0 chiến binh</div>
+          <div class="game-bar-wrap"><div class="game-bar sea" id="game-sea-bar"></div></div>
+        </div>
+      </div>
+      <div class="game-mini-grid">
+        <div class="game-list">
+          <div class="game-list-title">Top MVP</div>
+          <div id="game-top">Chưa có ai lên điểm.</div>
+        </div>
+        <div class="game-list">
+          <div class="game-list-title">Combat mới</div>
+          <div id="game-feed">User vào phòng là tự nhập team.</div>
+        </div>
+      </div>
+      <div class="game-tip">Comment 1 để vào Team Lửa, comment 2 để vào Team Biển. Sau khi chọn: comment +2, like +1, follow +8, quà theo xu.</div>
+    </div>
   </div>
 
   <div class="stats-row">
@@ -283,6 +334,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=20260520-hoaimy-only-1"></script>
+<script src="/static/app.js?v=20260520-minigame-team-pick-1"></script>
 </body>
 </html>

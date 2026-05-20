@@ -19,6 +19,14 @@ const EDGE_TTS_VOICE = 'vi-VN-HoaiMyNeural';
 const JOIN_GREET_COOLDOWN_MS = 3500;
 const COMMENT_AI_COOLDOWN_MS = 6500;
 let ttsOrder = 0;
+const miniGame = {
+  teams: {
+    fire: { name: 'Team Lửa', score: 0, members: new Set() },
+    sea: { name: 'Team Biển', score: 0, members: new Set() },
+  },
+  players: {},
+  feed: [],
+};
 
 // Chống trùng — cửa sổ 5 giây theo loại+user+nội dung (tránh lặp batch TikTokLive)
 const _seen = new Set();
@@ -447,6 +455,135 @@ function avatarMarkup(profile, cls = '') {
   return `<img class="${safeClass}" src="${safeSrcAttr}" data-fallback="${fallbackAttr}" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src=this.dataset.fallback" alt="" />`;
 }
 
+function gamePlayerId(profile) {
+  return (profile && (profile.username || profile.user_id || profile.sec_uid || profile.nickname)) || 'guest';
+}
+
+function gameHash(value) {
+  let hash = 0;
+  const text = String(value || '');
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function gameTeamFor(profile) {
+  const id = gamePlayerId(profile);
+  if (miniGame.players[id]) return miniGame.players[id].team;
+  return '';
+}
+
+function ensureGamePlayer(profile) {
+  const id = gamePlayerId(profile);
+  if (!miniGame.players[id]) {
+    miniGame.players[id] = {
+      id,
+      team: '',
+      profile,
+      score: 0,
+      actions: 0,
+    };
+  } else {
+    miniGame.players[id].profile = profile;
+  }
+  return miniGame.players[id];
+}
+
+function chooseMiniGameTeam(profile, team) {
+  if (!miniGame.teams[team]) return false;
+  const player = ensureGamePlayer(profile);
+  if (player.team === team) return true;
+  if (player.team && miniGame.teams[player.team]) {
+    miniGame.teams[player.team].members.delete(player.id);
+  }
+  player.team = team;
+  miniGame.teams[team].members.add(player.id);
+  pushGameFeed(`${displayName(profile)} chọn ${miniGame.teams[team].name}`);
+  renderMiniGame();
+  return true;
+}
+
+function teamChoiceFromComment(text) {
+  const msg = String(text || '').trim().toLowerCase();
+  if (/^(1|team\s*1|lửa|lua|team\s*lửa|team\s*lua)$/i.test(msg)) return 'fire';
+  if (/^(2|team\s*2|biển|bien|team\s*biển|team\s*bien)$/i.test(msg)) return 'sea';
+  return '';
+}
+
+function scoreMiniGame(profile, points, reason) {
+  const amount = Number(points || 0) || 0;
+  if (amount <= 0) return;
+  const player = ensureGamePlayer(profile);
+  if (!player.team) return;
+  player.score += amount;
+  player.actions++;
+  miniGame.teams[player.team].score += amount;
+  pushGameFeed(`${displayName(profile)} +${amount} cho ${miniGame.teams[player.team].name} (${reason})`);
+  renderMiniGame();
+}
+
+function pushGameFeed(text) {
+  miniGame.feed.unshift(text);
+  miniGame.feed = miniGame.feed.slice(0, 6);
+}
+
+function commentBattleBonus(text) {
+  const msg = String(text || '').toLowerCase();
+  if (/(đánh|danh|bem|đập|dap|chiến|chien|war|combat|solo|gank|attack)/i.test(msg)) return 5;
+  if (/(team\s*lửa|team\s*lua|team\s*biển|team\s*bien)/i.test(msg)) return 3;
+  return 0;
+}
+
+function renderMiniGame() {
+  const fire = miniGame.teams.fire;
+  const sea = miniGame.teams.sea;
+  const total = Math.max(1, fire.score + sea.score);
+  const firePct = Math.round((fire.score / total) * 100);
+  const seaPct = 100 - firePct;
+  setText('game-fire-score', fmtNum(fire.score));
+  setText('game-sea-score', fmtNum(sea.score));
+  setText('game-fire-count', `${fire.members.size} chiến binh`);
+  setText('game-sea-count', `${sea.members.size} chiến binh`);
+  setText('game-fire-lead', `${firePct}%`);
+  setText('game-sea-lead', `${seaPct}%`);
+  setWidth('game-fire-bar', firePct);
+  setWidth('game-sea-bar', seaPct);
+
+  const status = fire.score === sea.score
+    ? 'Đang hòa căng'
+    : `${fire.score > sea.score ? fire.name : sea.name} đang dẫn`;
+  setText('game-status', status);
+
+  const top = Object.values(miniGame.players)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4);
+  const topEl = document.getElementById('game-top');
+  if (topEl) {
+    topEl.innerHTML = top.length
+      ? top.map((p, i) => `<div class="game-line">${i + 1}. ${esc(displayName(p.profile))} · ${fmtNum(p.score)}đ</div>`).join('')
+      : 'Chưa có ai lên điểm.';
+  }
+
+  const feedEl = document.getElementById('game-feed');
+  if (feedEl) {
+    feedEl.innerHTML = miniGame.feed.length
+      ? miniGame.feed.map(line => `<div class="game-line">${esc(line)}</div>`).join('')
+      : 'User vào phòng là tự nhập team.';
+  }
+}
+
+function setText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function setWidth(id, pct) {
+  const el = document.getElementById(id);
+  if (el) el.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+}
+
 function addComment(d) {
   const key = dupKey('comment', d.user, d.text);
   if (isDup(key)) return;
@@ -469,6 +606,13 @@ function addComment(d) {
     </div>`;
   feed.prepend(el);
   trim(feed, 120);
+  const teamChoice = teamChoiceFromComment(d.text);
+  if (teamChoice) {
+    chooseMiniGameTeam(profile, teamChoice);
+    scoreMiniGame(profile, 3, 'chọn team');
+  } else {
+    scoreMiniGame(profile, 2 + commentBattleBonus(d.text), 'comment');
+  }
 
   if (autoVoiceEnabled) {
     enqueueCommentAI(profile, d.text);
@@ -517,6 +661,7 @@ function addGift(d) {
     const coinEach = Number(d.coin_value || 0) || 0;
     const qty = Number(d.gift_count || 1) || 1;
     const total = Math.max(0, coinEach * qty);
+    scoreMiniGame(profile, Math.max(10, total || qty * 10), 'quà');
     const name = displayName(profile);
     const giftName = String(d.gift_name || 'quà').trim() || 'quà';
     const thanks = buildGiftThanks({ name, giftName, qty, total });
@@ -578,6 +723,7 @@ function addFollow(d) {
   document.getElementById('stat-follows').textContent = statsFollows;
   playFollowSound();
   addEventFeed('đã theo dõi', d.nickname, d.user, '\u2764\ufe0f', profile);
+  scoreMiniGame(profile, 8, 'follow');
 }
 
 function addJoin(d) {
@@ -585,6 +731,9 @@ function addJoin(d) {
   if (isDup(key)) return;
   const profile = getProfile(d);
   addEventFeed('đã vào phòng', d.nickname, d.user, '\ud83d\udfe2', profile);
+  ensureGamePlayer(profile);
+  pushGameFeed(`${displayName(profile)} vào phòng, comment 1 hoặc 2 để chọn team`);
+  renderMiniGame();
 
   // Chào người mới với cooldown để không bị spam khi phòng đông.
   const now = Date.now();
@@ -631,6 +780,7 @@ function addLike(d) {
   const el = document.getElementById('stat-likes');
   if (el) el.textContent = fmtNum(statsLikes);
   addEventFeed('đã thích', d.nickname, d.user, '\ud83d\udc4d', profile);
+  scoreMiniGame(profile, 1, 'like');
 }
 
 function addEventFeed(tipo, nickname, user, icon = '\u2022') {
@@ -731,5 +881,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (voiceSelect) voiceSelect.addEventListener('change', onVoiceSelectChange);
   refreshPreferredVoice();
   if (speechSynth) speechSynth.onvoiceschanged = refreshPreferredVoice;
+  renderMiniGame();
   startVoiceListen();
 });
