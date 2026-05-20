@@ -72,7 +72,8 @@ def _generate_voice_reply(user_text: str) -> str:
                     "Nếu bị spam hoặc hỏi nhảm thì đáp kiểu troll hài: 'não m lag à', 'hỏi câu đau server vậy', 't chịu m luôn'. "
                     "Nếu được khen thì phản ứng tự luyến hài hước. "
                     "Nếu bị chê thì cà khịa ngược vui vẻ như streamer TikTok. "
-                    "Không được thêm biểu tượng cảm xúc hoặc ký tự emoji vào câu trả lời."
+                    "Không được thêm biểu tượng cảm xúc hoặc ký tự emoji vào câu trả lời. "
+                    "Chỉ trả nội dung cần nói, không mở đầu bằng 'Câu trả lời:', 'Bot:', 'AI:' hay nhãn tương tự."
                 ),
             },
             {"role": "user", "content": text},

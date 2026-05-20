@@ -13,6 +13,7 @@ let ttsBusy = false;
 let commentAiQueue = [];
 let lastJoinGreetAt = 0;
 let voiceRunToken = 0;
+let preferredVoice = null;
 const JOIN_GREET_COOLDOWN_MS = 3500;
 const COMMENT_AI_COOLDOWN_MS = 6500;
 let ttsOrder = 0;
@@ -91,6 +92,28 @@ function setVoiceButtons(listening) {
   if (stopBtn) stopBtn.disabled = true;
 }
 
+function getPreferredVoice() {
+  if (preferredVoice || !speechSynth) return preferredVoice;
+  const voices = speechSynth.getVoices ? speechSynth.getVoices() : [];
+  const scored = voices
+    .map(voice => ({ voice, score: voiceScore(voice) }))
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+  preferredVoice = scored.length > 0 ? scored[0].voice : null;
+  return preferredVoice;
+}
+
+function voiceScore(voice) {
+  const name = `${voice.name || ''} ${voice.lang || ''}`.toLowerCase();
+  let score = 0;
+  if (/^vi([-_]|$)/i.test(voice.lang || '')) score += 100;
+  if (/vietnam|tiếng việt|vietnamese/.test(name)) score += 80;
+  if (/female|woman|girl|nữ|nu|hoai|hoài|linh|mai|my|mỹ|an|google/.test(name)) score += 35;
+  if (/natural|neural|online|premium|enhanced/.test(name)) score += 20;
+  if (/male|man|nam\b/.test(name)) score -= 40;
+  return score;
+}
+
 function _speakOnce(text, { interrupt = true } = {}) {
   return new Promise((resolve) => {
     if (!text || !speechSynth) {
@@ -101,8 +124,11 @@ function _speakOnce(text, { interrupt = true } = {}) {
       if (interrupt) speechSynth.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.lang = 'vi-VN';
-      u.rate = 1;
-      u.pitch = 1;
+      const voice = getPreferredVoice();
+      if (voice) u.voice = voice;
+      u.rate = 0.9;
+      u.pitch = 1.08;
+      u.volume = 1;
       u.onend = () => resolve();
       u.onerror = () => resolve();
       speechSynth.speak(u);
@@ -119,9 +145,11 @@ async function ttsDrainQueue() {
     while (ttsQueue.length > 0) {
       ttsQueue.sort((a, b) => (b.priority - a.priority) || (a.order - b.order));
       const item = ttsQueue.shift();
-      if (!item || !item.text) continue;
+      if (!item || !item.parts || item.parts.length === 0) continue;
       // Không interrupt khi đang phát hàng đợi, để nghe tự nhiên.
-      await _speakOnce(item.text, { interrupt: false });
+      for (const part of item.parts) {
+        await _speakOnce(part, { interrupt: false });
+      }
       if (item.resolve) item.resolve();
     }
   } finally {
@@ -130,11 +158,13 @@ async function ttsDrainQueue() {
 }
 
 function ttsEnqueue(text, { priority = 0 } = {}) {
-  const t = sanitizeTtsText(text);
-  if (!t) return Promise.resolve();
+  const parts = Array.isArray(text)
+    ? text.map(sanitizeTtsText).filter(Boolean)
+    : [sanitizeTtsText(text)].filter(Boolean);
+  if (parts.length === 0) return Promise.resolve();
 
   return new Promise((resolve) => {
-    ttsQueue.push({ text: t, priority, order: ttsOrder++, resolve });
+    ttsQueue.push({ parts, priority, order: ttsOrder++, resolve });
     ttsDrainQueue();
   });
 }
@@ -143,7 +173,17 @@ function sanitizeTtsText(text) {
   return String(text || '')
     .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}\uFE0F]/gu, ' ')
     .replace(/[\u200D\u20E3]/g, ' ')
+    .replace(/[*_`~#>|[\]{}()]/g, ' ')
+    .replace(/[!?]{2,}/g, '!')
+    .replace(/\.{2,}/g, '.')
     .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function cleanAiReply(text) {
+  return sanitizeTtsText(text)
+    .replace(/^(câu\s*)?(trả\s*lời|reply|bot|ai)\s*[:：\-–]\s*/i, '')
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '')
     .trim();
 }
 
@@ -197,10 +237,9 @@ async function processCommentAIQueue() {
     const reply = await askVoiceAI(`Trả lời comment TikTok Live của ${name}: ${item.text}. Trả lời cực ngắn, vui vui, troll nhẹ kiểu Gen Z Việt Nam, không toxic, không dùng emoji hoặc biểu tượng cảm xúc.`);
     if (!autoVoiceEnabled || runToken !== voiceRunToken) return;
 
-    const spokenReply = sanitizeTtsText(reply);
-    const spokenTurn = `${question}. Bot trả lời: ${spokenReply}`;
+    const spokenReply = cleanAiReply(reply);
     updateVoiceLast(`${question} | Bot: ${spokenReply}`);
-    await speakText(spokenTurn);
+    await speakText([question, spokenReply]);
     if (!autoVoiceEnabled || runToken !== voiceRunToken) return;
 
     updateVoiceStatus(autoVoiceEnabled ? 'Đang chờ comment tiếp theo...' : 'Đã tắt trả lời comment');
@@ -625,5 +664,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('username-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') connectLive();
   });
+  getPreferredVoice();
+  if (speechSynth) speechSynth.onvoiceschanged = getPreferredVoice;
   startVoiceListen();
 });
