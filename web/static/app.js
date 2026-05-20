@@ -521,6 +521,7 @@ function scoreMiniGame(profile, points, reason) {
   player.actions++;
   miniGame.teams[player.team].score += amount;
   pushGameFeed(`${displayName(profile)} +${amount} cho ${miniGame.teams[player.team].name} (${reason})`);
+  triggerGameHit(player.team);
   renderMiniGame();
 }
 
@@ -572,6 +573,61 @@ function renderMiniGame() {
       ? miniGame.feed.map(line => `<div class="game-line">${esc(line)}</div>`).join('')
       : 'User vào phòng là tự nhập team.';
   }
+  renderTeamAvatars('fire');
+  renderTeamAvatars('sea');
+  renderFighter('fire');
+  renderFighter('sea');
+}
+
+function renderTeamAvatars(team) {
+  const el = document.getElementById(`game-${team}-avatars`);
+  if (!el) return;
+  const members = Object.values(miniGame.players)
+    .filter(player => player.team === team)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6);
+  el.innerHTML = members.length
+    ? members.map(player => miniGameAvatarMarkup(player.profile)).join('')
+    : '<span>?</span><span>?</span><span>?</span>';
+}
+
+function renderFighter(team) {
+  const el = document.getElementById(`game-${team}-fighter`);
+  if (!el) return;
+  const top = Object.values(miniGame.players)
+    .filter(player => player.team === team)
+    .sort((a, b) => b.score - a.score)[0];
+  if (top && top.profile && top.profile.avatar) {
+    el.innerHTML = miniGameAvatarMarkup(top.profile);
+  } else {
+    el.textContent = team === 'fire' ? '🔥' : '🌊';
+  }
+}
+
+function miniGameAvatarMarkup(profile) {
+  const fallback = placeholderAvatar(profile);
+  const src = safeUrl(profile && profile.avatar, fallback);
+  return `<img src="${escAttr(src)}" data-fallback="${escAttr(fallback)}" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src=this.dataset.fallback" alt="" />`;
+}
+
+function triggerGameHit(team) {
+  const card = document.getElementById('game-card');
+  if (!card) return;
+  const cls = team === 'fire' ? 'hit-fire' : 'hit-sea';
+  card.classList.remove('hit-fire', 'hit-sea');
+  void card.offsetWidth;
+  card.classList.add(cls);
+  setTimeout(() => card.classList.remove(cls), 520);
+}
+
+function toggleGameFullscreen() {
+  const card = document.getElementById('game-card');
+  if (!card) return;
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+    return;
+  }
+  card.requestFullscreen().catch(() => {});
 }
 
 function setText(id, text) {
