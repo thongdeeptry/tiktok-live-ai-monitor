@@ -130,7 +130,7 @@ async function ttsDrainQueue() {
 }
 
 function ttsEnqueue(text, { priority = 0 } = {}) {
-  const t = String(text || '').trim();
+  const t = sanitizeTtsText(text);
   if (!t) return Promise.resolve();
 
   return new Promise((resolve) => {
@@ -139,15 +139,23 @@ function ttsEnqueue(text, { priority = 0 } = {}) {
   });
 }
 
+function sanitizeTtsText(text) {
+  return String(text || '')
+    .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}\uFE0F]/gu, ' ')
+    .replace(/[\u200D\u20E3]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function ttsClearAll() {
   ttsQueue.forEach(item => { if (item && item.resolve) item.resolve(); });
   ttsQueue = [];
   try { if (speechSynth) speechSynth.cancel(); } catch (_) {}
 }
 
-// Dùng cho voice assistant: đi qua hàng đợi chung để không ngắt quà/chào/comment khác.
+// Dùng cho voice assistant: đi qua hàng đợi chung, đọc comment và reply thành một lượt liền mạch.
 function speakText(text) {
-  return ttsEnqueue(text, { priority: 1 });
+  return ttsEnqueue(text, { priority: 2 });
 }
 
 async function askVoiceAI(text) {
@@ -186,14 +194,13 @@ async function processCommentAIQueue() {
   updateVoiceStatus('Đang trả lời comment...');
 
   try {
-    await speakText(question);
+    const reply = await askVoiceAI(`Trả lời comment TikTok Live của ${name}: ${item.text}. Trả lời cực ngắn, vui vui, troll nhẹ kiểu Gen Z Việt Nam, không toxic, không dùng emoji hoặc biểu tượng cảm xúc.`);
     if (!autoVoiceEnabled || runToken !== voiceRunToken) return;
 
-    const reply = await askVoiceAI(`Trả lời comment TikTok Live của ${name}: ${item.text}. Trả lời cực ngắn, vui vui, troll nhẹ kiểu Gen Z Việt Nam, không toxic.`);
-    if (!autoVoiceEnabled || runToken !== voiceRunToken) return;
-
-    updateVoiceLast(`${question} | Bot: ${reply}`);
-    await speakText(reply);
+    const spokenReply = sanitizeTtsText(reply);
+    const spokenTurn = `${question}. Bot trả lời: ${spokenReply}`;
+    updateVoiceLast(`${question} | Bot: ${spokenReply}`);
+    await speakText(spokenTurn);
     if (!autoVoiceEnabled || runToken !== voiceRunToken) return;
 
     updateVoiceStatus(autoVoiceEnabled ? 'Đang chờ comment tiếp theo...' : 'Đã tắt trả lời comment');
@@ -425,8 +432,7 @@ function buildGiftThanks({ name, giftName, qty, total }) {
   const t = Number(total || 0) || 0;
 
   const giftPart = q > 1 ? `${q} ${g}` : g;
-  const valuePart = t > 0 ? `, tổng ${fmtNum(t)} xu` : '';
-  const giftDetail = `${giftPart}${valuePart}`;
+  const giftDetail = `${giftPart}`;
 
   // Câu phải "giống thật": ngắn, tự nhiên, không quá khuôn mẫu
   if (t >= 1000) {
